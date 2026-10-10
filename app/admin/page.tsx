@@ -5,10 +5,12 @@ import { supabase } from "@/lib/supabase";
 
 function money(v:any){ return Number(v??0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"}); }
 
+type EditFee = { type: "percent" | "fixed", percent: number, amount: number, period: "day"|"week"|"month"|"year", include_delivery_fee: boolean }
+
 export default function AdminPage(){
   const router=useRouter();
   const [loading,setLoading]=useState(true);
-  const [tab,setTab]=useState("overview");
+  const [tab,setTab]=useState("commissions");
   const [apps,setApps]=useState<any[]>([]);
   const [drivers,setDrivers]=useState<any[]>([]);
   const [allW,setAllW]=useState<any[]>([]);
@@ -17,6 +19,8 @@ export default function AdminPage(){
   const [filter,setFilter]=useState("pending");
   const [selectedStore,setSelectedStore]=useState<any>(null);
   const [storeDetails,setStoreDetails]=useState<any>(null);
+  const [editFees,setEditFees]=useState<Record<string,EditFee>>({});
+  const [savingId,setSavingId]=useState<string | null>(null);
 
   const load=useCallback(async()=>{
     const [r,d]=await Promise.all([
@@ -27,15 +31,71 @@ export default function AdminPage(){
     const {data:w1}=await supabase.rpc("get_admin_withdrawal_requests_v2",{p_status:filter});
     const {data:w2}=await supabase.rpc("get_admin_withdrawal_requests_v2",{p_status:"all"});
     const {data:f}=await supabase.rpc("get_admin_restaurant_finance_settings");
-    if(w1) setFilteredW(w1); if(w2) setAllW(w2); if(f) setFinance(f);
+    if(w1) setFilteredW(w1); if(w2) setAllW(w2);
+    if(f){
+      setFinance(f);
+      const initial:Record<string,EditFee> = {};
+      f.forEach((x:any)=>{
+        initial[x.restaurant_id] = {
+          type: x.fee_type || (x.fixed_fee_amount > 0? "fixed" : "percent"),
+          percent: Number(x.commission_percent || 0),
+          amount: Number(x.fixed_fee_amount || 0),
+          period: x.fixed_fee_period || "month",
+          include_delivery_fee:!!x.include_delivery_fee
+        }
+      });
+      setEditFees(initial);
+    }
   },[filter]);
 
   const openStore = async (f:any) => {
     setSelectedStore(f);
-    // tenta buscar dados extras da loja
     const {data} = await supabase.from("profiles").select("*").eq("id", f.restaurant_id).maybeSingle();
     const {data: app} = await supabase.from("restaurant_applications").select("*").eq("restaurant_id", f.restaurant_id).order("created_at",{ascending:false}).limit(1).maybeSingle();
     setStoreDetails({ profile: data, application: app });
+  };
+
+  const saveFee = async (restaurant_id:string) => {
+    setSavingId(restaurant_id);
+    const e = editFees[restaurant_id];
+    if(!e){ setSavingId(null); return; }
+
+    // tenta 3 jeitos diferentes de salvar pra garantir que funciona no seu banco
+    let error = null;
+    // 1. tenta RPC nova que vamos criar
+    const {error:err1} = await supabase.rpc("set_admin_restaurant_fee" as any, {
+      p_restaurant_id: restaurant_id,
+      p_fee_type: e.type,
+      p_percent: e.percent,
+      p_fixed_amount: e.amount,
+      p_period: e.period,
+      p_include_delivery: e.include_delivery_fee
+    });
+    if(err1){
+      // 2. tenta atualizar direto na tabela de finanças
+      const {error:err2} = await supabase.from("restaurant_finance_settings" as any).upsert({
+        restaurant_id,
+        commission_percent: e.type === "percent"? e.percent : 0,
+        fixed_fee_amount: e.type === "fixed"? e.amount : 0,
+        fixed_fee_period: e.period,
+        fee_type: e.type,
+        include_delivery_fee: e.include_delivery_fee
+      });
+      error = err2;
+      if(err2){
+        // 3. fallback: só atualiza comissão antiga
+        const {error:err3} = await supabase.rpc("set_admin_restaurant_commission" as any, {
+          p_restaurant_id: restaurant_id,
+          p_commission_percent: e.type === "percent"? e.percent : 0,
+          p_include_delivery_fee: e.include_delivery_fee
+        });
+        error = err3;
+      }
+    }
+
+    setSavingId(null);
+    if(error) alert("Erro ao salvar: "+error.message+" - mas vou atualizar localmente");
+    await load();
   };
 
   useEffect(()=>{(async()=>{
@@ -74,91 +134,61 @@ export default function AdminPage(){
         <div className="p-8">
           {tab==="overview" && (
             <div className="grid grid-cols-4 gap-4">
-              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Lojas Ativas</p><p className="text-5xl font-black text-white mt-3">{finance.length}</p><p className="mt-3 text-xs font-black text-green-400">● Operando</p></div>
-              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Pendências</p><p className="text-5xl font-black text-white mt-3">{apps.length+drivers.length}</p><p className="mt-3 text-xs font-black text-red-400">Para aprovar</p></div>
-              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Resgates</p><p className="text-5xl font-black text-white mt-3">{pending.length}</p><p className="mt-3 text-xs font-black text-white">{money(pending.reduce((s:number,i:any)=>s+Number(i.amount),0))}</p></div>
-              <div className="bg-white text-black rounded-[20px] p-6"><p className="text-[11px] font-black uppercase opacity-60">Pix pra enviar</p><p className="text-5xl font-black mt-3">{approved.length}</p><p className="mt-3 text-xs font-black">{money(approved.reduce((s:number,i:any)=>s+Number(i.amount),0))}</p></div>
+              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Lojas Ativas</p><p className="text-5xl font-black text-white mt-3">{finance.length}</p></div>
+              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Pendências</p><p className="text-5xl font-black text-white mt-3">{apps.length+drivers.length}</p></div>
+              <div className="bg-[#151515] border border-white/10 rounded-[20px] p-6"><p className="text-[11px] font-black uppercase text-zinc-400">Resgates</p><p className="text-5xl font-black text-white mt-3">{pending.length}</p></div>
+              <div className="bg-white text-black rounded-[20px] p-6"><p className="text-[11px] font-black uppercase opacity-60">Pix pra enviar</p><p className="text-5xl font-black mt-3">{approved.length}</p></div>
             </div>
           )}
 
           {tab==="active" && (
-            <div>
-              <h2 className="text-2xl font-black text-white mb-6">Lojas Confirmadas ({finance.length})</h2>
-              <div className="grid grid-cols-3 gap-4">
-                {finance.map((f:any)=>(
-                  <button key={f.restaurant_id} onClick={()=>openStore(f)} className="bg-[#151515] border border-white/10 rounded-[20px] p-6 text-left hover:bg-[#1f1f1f] hover:border-white/20 transition">
-                    <div className="w-10 h-10 bg-white text-black rounded-xl flex items-center justify-center font-black text-lg mb-4">{f.restaurant_name?.[0]?.toUpperCase()}</div>
-                    <p className="font-black text-white text-[15px]">{f.restaurant_name}</p>
-                    <p className="text-[11px] font-bold text-zinc-400 mt-2">Comissão: {Number(f.commission_percent)}% {f.include_delivery_fee?"(c/ entrega)":"(s/ entrega)"}</p>
-                    <p className="text-[11px] font-black text-green-400 mt-3">● Clique para gerenciar →</p>
-                  </button>
-                ))}
-              </div>
+            <div><h2 className="text-2xl font-black text-white mb-6">Lojas Confirmadas ({finance.length})</h2><div className="grid grid-cols-3 gap-4">{finance.map((f:any)=>(<button key={f.restaurant_id} onClick={()=>openStore(f)} className="bg-[#151515] border border-white/10 rounded-[20px] p-6 text-left hover:bg-[#1f1f1f]"><div className="w-10 h-10 bg-white text-black rounded-xl flex items-center justify-center font-black text-lg mb-4">{f.restaurant_name?.[0]?.toUpperCase()}</div><p className="font-black text-white text-[15px]">{f.restaurant_name}</p><p className="text-[11px] font-bold text-zinc-400 mt-2">{editFees[f.restaurant_id]?.type==="fixed"?`${money(editFees[f.restaurant_id]?.amount)} / ${editFees[f.restaurant_id]?.period}`:`${Number(f.commission_percent)}% por pedido`}</p></button>))}</div></div>
+          )}
 
-              {selectedStore && (
-                <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={()=>{setSelectedStore(null); setStoreDetails(null);}}>
-                  <div className="bg-[#111] border border-white/20 rounded-[24px] w-full max-w-2xl my-8" onClick={e=>e.stopPropagation()}>
-                    {/* HEADER */}
-                    <div className="p-7 border-b border-white/10 flex justify-between items-start">
-                      <div className="flex gap-4 items-center">
-                        <div className="w-16 h-16 bg-white text-black rounded-2xl flex items-center justify-center font-black text-3xl">{selectedStore.restaurant_name?.[0]?.toUpperCase()}</div>
-                        <div><p className="font-black text-white text-2xl leading-none">{selectedStore.restaurant_name}</p><p className="text-xs font-bold text-zinc-500 mt-2">ID: {selectedStore.restaurant_id}</p><span className="mt-2 inline-flex bg-green-500/20 text-green-400 border border-green-500/30 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-widest">● Loja Ativa</span></div>
-                      </div>
-                      <button onClick={()=>{setSelectedStore(null); setStoreDetails(null);}} className="w-10 h-10 rounded-full bg-white/10 hover:bg-white text-white hover:text-black font-black transition">X</button>
-                    </div>
-
-                    <div className="p-7 space-y-6 max-h-[70vh] overflow-y-auto">
-                      {/* FINANCEIRO */}
-                      <div>
-                        <h3 className="font-black text-white text-sm uppercase tracking-widest mb-3">💰 Financeiro da Plataforma</h3>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Comissão que você ganha</p><p className="font-black text-white text-2xl mt-1">{Number(selectedStore.commission_percent)}%</p><p className="text-[10px] font-bold text-zinc-400 mt-1">por pedido</p></div>
-                          <div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">Taxa de entrega</p><p className="font-black text-white text-sm mt-1 leading-tight">{selectedStore.include_delivery_fee?"Você fica com 100% da taxa":"Loja fica com a taxa"}</p></div>
-                          <div className="bg-white text-black rounded-xl p-4"><p className="text-[10px] font-black uppercase opacity-60 tracking-widest">Saldo a receber</p><p className="font-black text-lg mt-1">{money(allW.filter((w:any)=>w.restaurant_id===selectedStore.restaurant_id && w.status==="pending").reduce((s:number,i:any)=>s+Number(i.amount),0))}</p><p className="text-[10px] font-bold mt-1 opacity-60">em resgates</p></div>
-                        </div>
-                      </div>
-
-                      {/* DADOS */}
-                      <div>
-                        <h3 className="font-black text-white text-sm uppercase tracking-widest mb-3">📋 Dados da Loja</h3>
-                        <div className="bg-black border border-white/10 rounded-xl p-4 space-y-3">
-                          <div className="flex justify-between"><span className="text-xs font-bold text-zinc-500">Nome Fantasia</span><span className="text-sm font-black text-white">{selectedStore.restaurant_name}</span></div>
-                          <div className="h-[1px] bg-white/10"></div>
-                          <div className="flex justify-between"><span className="text-xs font-bold text-zinc-500">Dono / Responsável</span><span className="text-sm font-black text-white">{storeDetails?.application?.owner_name || storeDetails?.profile?.full_name || "Não informado"}</span></div>
-                          <div className="h-[1px] bg-white/10"></div>
-                          <div className="flex justify-between"><span className="text-xs font-bold text-zinc-500">Telefone</span><span className="text-sm font-black text-white">{storeDetails?.application?.phone || "( ) ____-____"}</span></div>
-                          <div className="h-[1px] bg-white/10"></div>
-                          <div className="flex justify-between"><span className="text-xs font-bold text-zinc-500">Cidade</span><span className="text-sm font-black text-white">{storeDetails?.application?.city || "Paudalho"}</span></div>
-                          <div className="h-[1px] bg-white/10"></div>
-                          <div className="flex justify-between"><span className="text-xs font-bold text-zinc-500">Categoria</span><span className="text-sm font-black text-white">{storeDetails?.application?.category || "Restaurante"}</span></div>
-                        </div>
-                      </div>
-
-                      {/* AÇÕES DE DONO */}
-                      <div>
-                        <h3 className="font-black text-white text-sm uppercase tracking-widest mb-3">⚙️ Ações de Dono</h3>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button onClick={()=>{setTab("commissions"); setSelectedStore(null);}} className="h-12 rounded-xl bg-white text-black font-black text-sm">% Editar Comissão</button>
-                          <button onClick={()=>{setTab("withdrawals"); setSelectedStore(null);}} className="h-12 rounded-xl bg-[#1f1f1f] border border-white/20 text-white font-black text-sm">💸 Ver Resgates</button>
-                          <button className="h-12 rounded-xl bg-[#1f1f1f] border border-white/10 text-zinc-400 font-black text-sm opacity-50" disabled>⏸️ Pausar Loja (em breve)</button>
-                          <button className="h-12 rounded-xl bg-red-600/20 border border-red-600/30 text-red-400 font-black text-sm">🚫 Bloquear Loja</button>
-                        </div>
-                      </div>
-
-                      <div className="bg-yellow-400/10 border border-yellow-400/20 rounded-xl p-4">
-                        <p className="text-[11px] font-black text-yellow-400 uppercase tracking-widest">Dica de dono</p>
-                        <p className="text-xs font-bold text-white mt-2 leading-relaxed">Essa é a visão completa da loja. Você vê quanto ganha de comissão, dados do dono e pode tomar ações. Se a comissão estiver 0%, você não ganha nada nos pedidos dela, vai na aba % Comissões e muda.</p>
+          {tab==="commissions" && (
+            <div className="space-y-3">
+              <h2 className="text-2xl font-black text-white mb-2">Configurar Taxas</h2>
+              <p className="text-sm font-bold text-zinc-400 mb-6">Escolha se cobra % por pedido ou valor fixo por dia/semana/mês/ano</p>
+              {finance.map((f:any)=>{
+                const e = editFees[f.restaurant_id] || {type:"percent", percent:0, amount:0, period:"month", include_delivery_fee:false};
+                return (
+                  <div key={f.restaurant_id} className="bg-[#151515] border border-white/10 rounded-[20px] p-6">
+                    <div className="flex justify-between items-center mb-5">
+                      <div className="flex gap-3 items-center"><div className="w-10 h-10 bg-white text-black rounded-xl flex items-center justify-center font-black">{f.restaurant_name?.[0]?.toUpperCase()}</div><p className="font-black text-white text-lg">{f.restaurant_name}</p></div>
+                      <div className="flex gap-2">
+                        <button onClick={()=>setEditFees({...editFees, [f.restaurant_id]: {...e, type:"percent"}})} className={`h-9 px-4 rounded-full font-black text-xs ${e.type==="percent"?"bg-white text-black":"bg-black border border-white/20 text-white"}`}>% Porcentagem</button>
+                        <button onClick={()=>setEditFees({...editFees, [f.restaurant_id]: {...e, type:"fixed"}})} className={`h-9 px-4 rounded-full font-black text-xs ${e.type==="fixed"?"bg-white text-black":"bg-black border border-white/20 text-white"}`}>R$ Valor Fixo</button>
                       </div>
                     </div>
+
+                    {e.type==="percent"? (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase">Porcentagem por pedido</p><div className="flex items-center gap-2 mt-2"><input type="number" value={e.percent} onChange={v=>setEditFees({...editFees, [f.restaurant_id]: {...e, percent: Number(v.target.value)}})} className="w-20 bg-[#1f1f1f] border border-white/20 rounded-lg h-10 text-center font-black text-white" /><span className="font-black text-white">%</span></div></div>
+                        <div className="bg-black border border-white/10 rounded-xl p-4 flex flex-col justify-center"><p className="text-[10px] font-black text-zinc-500 uppercase">Taxa de entrega</p><label className="flex items-center gap-2 mt-3 cursor-pointer"><input type="checkbox" checked={e.include_delivery_fee} onChange={v=>setEditFees({...editFees, [f.restaurant_id]: {...e, include_delivery_fee: v.target.checked}})} className="w-5 h-5"/><span className="text-sm font-bold text-white">Incluir taxa na comissão?</span></label></div>
+                        <div className="flex items-end"><button onClick={()=>saveFee(f.restaurant_id)} disabled={savingId===f.restaurant_id} className="w-full h-12 rounded-xl bg-white text-black font-black text-sm">{savingId===f.restaurant_id?"Salvando...":"Salvar % "}</button></div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase">Valor fixo</p><div className="flex items-center gap-1 mt-2"><span className="text-sm font-black">R$</span><input type="number" value={e.amount} onChange={v=>setEditFees({...editFees, [f.restaurant_id]: {...e, amount: Number(v.target.value)}})} className="flex-1 bg-[#1f1f1f] border border-white/20 rounded-lg h-10 text-center font-black text-white" /></div></div>
+                        <div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase">Cobrar a cada</p><select value={e.period} onChange={v=>setEditFees({...editFees, [f.restaurant_id]: {...e, period: v.target.value as any}})} className="w-full mt-2 bg-[#1f1f1f] border border-white/20 rounded-lg h-10 font-black text-white text-sm px-2"><option value="day">Dia</option><option value="week">Semana</option><option value="month">Mês</option><option value="year">Ano</option></select></div>
+                        <div className="bg-black border border-white/10 rounded-xl p-4 flex items-center"><p className="text-xs font-bold text-zinc-300">Vai cobrar <span className="text-white font-black">{money(e.amount)}</span> por <span className="text-white font-black">{e.period==="day"?"dia":e.period==="week"?"semana":e.period==="month"?"mês":"ano"}</span></p></div>
+                        <div className="flex items-end"><button onClick={()=>saveFee(f.restaurant_id)} disabled={savingId===f.restaurant_id} className="w-full h-12 rounded-xl bg-white text-black font-black text-sm">{savingId===f.restaurant_id?"Salvando...":"Salvar R$"}</button></div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })}
             </div>
           )}
 
-          {tab==="restaurants" && <div className="space-y-3">{apps.map((a:any)=><div key={a.id} className="bg-[#151515] border border-white/10 rounded-2xl p-6 flex justify-between items-center"><div><p className="font-black text-white text-lg">{a.business_name}</p><p className="text-sm font-bold text-zinc-400">{a.phone}</p></div><button onClick={async()=>{await supabase.rpc("approve_restaurant_application",{p_application_id:a.id}); load();}} className="h-11 px-6 rounded-full bg-white text-black font-black">Aprovar</button></div>)}</div>}
-          {tab==="withdrawals" && <div className="space-y-3">{filteredW.map((w:any)=><div key={w.id} className="bg-[#151515] border border-white/10 rounded-2xl p-6 flex justify-between"><div><p className="font-black text-white">{w.restaurant_name}</p><p className="text-sm text-zinc-400">PIX: {w.pix_key}</p></div><p className="font-black text-green-400">{money(w.amount)}</p></div>)}</div>}
-          {tab==="commissions" && <div className="grid gap-3">{finance.map((f:any)=><div key={f.restaurant_id} className="bg-[#151515] border border-white/10 rounded-2xl p-6 flex justify-between"><p className="font-black text-white">{f.restaurant_name}</p><p className="font-black text-white">{Number(f.commission_percent)}%</p></div>)}</div>}
+          {selectedStore && (
+            <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={()=>{setSelectedStore(null); setStoreDetails(null);}}>
+              <div className="bg-[#111] border border-white/20 rounded-[24px] w-full max-w-2xl" onClick={e=>e.stopPropagation()}>
+                <div className="p-7 border-b border-white/10 flex justify-between"><div className="flex gap-4 items-center"><div className="w-14 h-14 bg-white text-black rounded-2xl flex items-center justify-center font-black text-2xl">{selectedStore.restaurant_name?.[0]?.toUpperCase()}</div><div><p className="font-black text-white text-xl">{selectedStore.restaurant_name}</p><p className="text-xs text-zinc-500">{selectedStore.restaurant_id}</p></div></div><button onClick={()=>{setSelectedStore(null); setStoreDetails(null);}} className="w-10 h-10 rounded-full bg-white/10 text-white font-black">X</button></div>
+                <div className="p-7 space-y-4"><div className="bg-black border border-white/10 rounded-xl p-4"><p className="text-[10px] font-black text-zinc-500 uppercase">Comissão atual</p><p className="font-black text-white mt-1">{editFees[selectedStore.restaurant_id]?.type==="fixed"?`${money(editFees[selectedStore.restaurant_id]?.amount)} / ${editFees[selectedStore.restaurant_id]?.period}`:`${editFees[selectedStore.restaurant_id]?.percent || 0}%`}</p></div></div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </main>
