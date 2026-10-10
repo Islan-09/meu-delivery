@@ -7,433 +7,160 @@ import { supabase } from "@/lib/supabase";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
-  const [mode, setMode] = useState<
-    "login" | "register"
-  >("login");
-
-  const [name, setName] =
-    useState("");
-
-  const [phone, setPhone] =
-    useState("");
-
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
-
-  const [message, setMessage] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  // ==========================================
-  // ENTRAR
-  // ==========================================
-
-  async function handleLogin(
-    event: FormEvent
-  ) {
+  async function handleLogin(event: FormEvent) {
     event.preventDefault();
-
     setLoading(true);
     setError("");
     setMessage("");
 
-    const { error } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      setError(
-        "E-mail ou senha incorretos."
-      );
-
+      setError("E-mail ou senha incorretos.");
+      setPassword(""); // <-- LIMPA A SENHA QUANDO ERRA
       setLoading(false);
       return;
     }
 
-    const returnPath =
-      sessionStorage.getItem(
-        "after-login"
-      );
-
-    sessionStorage.removeItem(
-      "after-login"
-    );
-
-    router.push(
-      returnPath || "/"
-    );
-
+    const returnPath = sessionStorage.getItem("after-login");
+    sessionStorage.removeItem("after-login");
+    router.push(returnPath || "/");
     router.refresh();
   }
 
-  // ==========================================
-  // CRIAR CONTA
-  // ==========================================
-
-  async function handleRegister(
-    event: FormEvent
-  ) {
+  async function handleRegister(event: FormEvent) {
     event.preventDefault();
-
     setLoading(true);
     setError("");
     setMessage("");
 
-    if (
-      name.trim().length < 3
-    ) {
-      setError(
-        "Digite seu nome completo."
-      );
-
+    if (name.trim().length < 3) {
+      setError("Digite seu nome completo.");
+      setLoading(false);
+      return;
+    }
+    if (password.length < 6) {
+      setError("A senha precisa ter pelo menos 6 caracteres.");
+      setPassword(""); // <-- LIMPA TAMBÉM
       setLoading(false);
       return;
     }
 
-    if (
-      password.length < 6
-    ) {
-      setError(
-        "A senha precisa ter pelo menos 6 caracteres."
-      );
-
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } =
-      await supabase.auth.signUp({
-        email,
-        password,
-
-        options: {
-          data: {
-            full_name: name,
-            phone,
-          },
-        },
-      });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { full_name: name, phone } },
+    });
 
     if (error) {
-      setError(
-        error.message
-      );
-
+      setError(error.message);
+      setPassword(""); // <-- LIMPA TAMBÉM
       setLoading(false);
       return;
     }
-
-    // ========================================
-    // CASO PRECISE CONFIRMAR E-MAIL
-    // ========================================
 
     if (!data.session) {
-      setMessage(
-        "Conta criada! Confira seu e-mail para confirmar o cadastro."
-      );
-
+      setMessage("Conta criada! Confira seu e-mail para confirmar o cadastro.");
+      setPassword("");
       setLoading(false);
       return;
     }
 
-    // ========================================
-    // VOLTAR PARA ONDE O CLIENTE ESTAVA
-    // ========================================
-
-    const returnPath =
-      sessionStorage.getItem(
-        "after-login"
-      );
-
-    sessionStorage.removeItem(
-      "after-login"
-    );
-
-    router.push(
-      returnPath || "/"
-    );
-
+    const returnPath = sessionStorage.getItem("after-login");
+    sessionStorage.removeItem("after-login");
+    router.push(returnPath || "/");
     router.refresh();
   }
 
-  // ==========================================
-  // CONTINUAR SEM LOGIN
-  // ==========================================
-
   function handleGuest() {
-    // Se a pessoa entrou nessa tela
-    // depois de tentar comprar e resolveu
-    // apenas navegar, removemos o retorno
-    // antigo para não redirecioná-la depois.
-
-    sessionStorage.removeItem(
-      "after-login"
-    );
-
+    sessionStorage.removeItem("after-login");
     router.push("/");
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f7f7] px-4 py-10">
-      <div className="w-full max-w-md">
-        {/* VOLTAR */}
+    <main className="min-h-screen bg-zinc-100 flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-5xl grid md:grid-cols-2 bg-white rounded-[28px] shadow-[0_20px_80px_rgba(0,0,0,0.12)] overflow-hidden">
 
-        <Link
-          href="/"
-          className="mb-6 inline-block font-semibold text-red-600"
-        >
-          ← Voltar
-        </Link>
+        {/* LADO ESQUERDO - BRANDING PROFISSIONAL */}
+        <div className="hidden md:flex flex-col justify-between bg-[#E30613] p-10 text-white">
+          <div>
+            <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center text-3xl">🍕</div>
+            <h1 className="mt-8 text-4xl font-black leading-[0.9]">Entrega<br/>Paudalho</h1>
+            <p className="mt-4 text-white/90 font-medium leading-6">Peça em segundos. Entrega rápida, comida quente e atendimento de verdade.</p>
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm font-bold"><span className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">✓</span> Entrega em até 40 min</div>
+            <div className="flex items-center gap-2 text-sm font-bold"><span className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">✓</span> Pagamento online e na entrega</div>
+            <div className="flex items-center gap-2 text-sm font-bold"><span className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">✓</span> Acompanhe seu pedido</div>
+          </div>
+        </div>
 
-        {/* CARD */}
+        {/* LADO DIREITO - FORM */}
+        <div className="p-8 md:p-10">
+          <Link href="/" className="mb-6 inline-block text-sm font-black text-[#E30613]">← Voltar</Link>
 
-        <div className="rounded-3xl bg-white p-7 shadow-sm">
-          {/* LOGO */}
-
-          <div className="text-center">
-            <div className="text-5xl">
-              🍕
-            </div>
-
-            <h1 className="mt-4 text-2xl font-black">
-              Entrega Paudalho
-            </h1>
-
-            <p className="mt-2 text-sm text-zinc-500">
-              {mode === "login"
-                ? "Entre para continuar seu pedido"
-                : "Crie sua conta gratuitamente"}
-            </p>
+          <div className="md:hidden text-center mb-6">
+            <div className="text-5xl">🍕</div>
+            <h1 className="mt-2 text-2xl font-black text-zinc-900">Entrega Paudalho</h1>
           </div>
 
-          {/* ENTRAR / CRIAR CONTA */}
+          <h2 className="text-[26px] font-black text-zinc-900 tracking-tight">{mode === "login"? "Entrar na sua conta" : "Crie sua conta"}</h2>
+          <p className="mt-1 text-[14px] font-medium text-zinc-500">{mode === "login"? "Entre para continuar seu pedido" : "É rápido e gratuito"}</p>
 
-          <div className="mt-7 grid grid-cols-2 rounded-xl bg-zinc-100 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setMode(
-                  "login"
-                );
-
-                setError("");
-                setMessage("");
-              }}
-              className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-                mode === "login"
-                  ? "bg-white text-red-600 shadow-sm"
-                  : "text-zinc-500"
-              }`}
-            >
-              Entrar
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setMode(
-                  "register"
-                );
-
-                setError("");
-                setMessage("");
-              }}
-              className={`rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-                mode ===
-                "register"
-                  ? "bg-white text-red-600 shadow-sm"
-                  : "text-zinc-500"
-              }`}
-            >
-              Criar conta
-            </button>
+          <div className="mt-6 grid grid-cols-2 rounded-full bg-zinc-100 p-1">
+            <button type="button" onClick={() => { setMode("login"); setError(""); setMessage(""); }} className={`rounded-full px-4 py-2.5 text-sm font-black transition ${mode === "login"? "bg-zinc-900 text-white shadow" : "text-zinc-500"}`}>Entrar</button>
+            <button type="button" onClick={() => { setMode("register"); setError(""); setMessage(""); }} className={`rounded-full px-4 py-2.5 text-sm font-black transition ${mode === "register"? "bg-zinc-900 text-white shadow" : "text-zinc-500"}`}>Criar conta</button>
           </div>
 
-          {/* FORMULÁRIO */}
-
-          <form
-            onSubmit={
-              mode === "login"
-                ? handleLogin
-                : handleRegister
-            }
-            className="mt-6 space-y-4"
-          >
-            {/* NOME + WHATSAPP */}
-
-            {mode ===
-              "register" && (
+          <form onSubmit={mode === "login"? handleLogin : handleRegister} className="mt-6 space-y-4">
+            {mode === "register" && (
               <>
                 <div>
-                  <label className="mb-2 block text-sm font-bold">
-                    Nome completo
-                  </label>
-
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(
-                      event
-                    ) =>
-                      setName(
-                        event.target
-                          .value
-                      )
-                    }
-                    placeholder="Seu nome"
-                    required
-                    className="w-full rounded-xl border border-zinc-200 px-4 py-3 outline-none transition focus:border-red-500"
-                  />
+                  <label className="mb-2 block text-[13px] font-black text-zinc-900">Nome completo</label>
+                  <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" required className="w-full h-[48px] rounded-xl border border-zinc-300 px-4 text-[15px] font-semibold text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10" />
                 </div>
-
                 <div>
-                  <label className="mb-2 block text-sm font-bold">
-                    WhatsApp
-                  </label>
-
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(
-                      event
-                    ) =>
-                      setPhone(
-                        event.target
-                          .value
-                      )
-                    }
-                    placeholder="(81) 99999-9999"
-                    className="w-full rounded-xl border border-zinc-200 px-4 py-3 outline-none transition focus:border-red-500"
-                  />
+                  <label className="mb-2 block text-[13px] font-black text-zinc-900">WhatsApp</label>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(81) 99999-9999" className="w-full h-[48px] rounded-xl border border-zinc-300 px-4 text-[15px] font-semibold text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10" />
                 </div>
               </>
             )}
 
-            {/* E-MAIL */}
-
             <div>
-              <label className="mb-2 block text-sm font-bold">
-                E-mail
-              </label>
-
-              <input
-                type="email"
-                value={email}
-                onChange={(
-                  event
-                ) =>
-                  setEmail(
-                    event.target
-                      .value
-                  )
-                }
-                placeholder="seuemail@gmail.com"
-                required
-                className="w-full rounded-xl border border-zinc-200 px-4 py-3 outline-none transition focus:border-red-500"
-              />
+              <label className="mb-2 block text-[13px] font-black text-zinc-900">E-mail</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seuemail@gmail.com" required className="w-full h-[48px] rounded-xl border border-zinc-300 px-4 text-[15px] font-semibold text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10" />
             </div>
 
-            {/* SENHA */}
-
             <div>
-              <label className="mb-2 block text-sm font-bold">
-                Senha
-              </label>
-
-              <input
-                type="password"
-                value={
-                  password
-                }
-                onChange={(
-                  event
-                ) =>
-                  setPassword(
-                    event.target
-                      .value
-                  )
-                }
-                placeholder="••••••••"
-                required
-                minLength={6}
-                className="w-full rounded-xl border border-zinc-200 px-4 py-3 outline-none transition focus:border-red-500"
-              />
+              <label className="mb-2 block text-[13px] font-black text-zinc-900">Senha</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} className="w-full h-[48px] rounded-xl border border-zinc-300 px-4 text-[15px] font-semibold text-zinc-900 placeholder:text-zinc-400 outline-none focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10" />
             </div>
 
-            {/* ERRO */}
+            {error && <div className="rounded-xl bg-red-50 border border-red-200 p-3 text-[13px] font-bold text-red-700">{error}</div>}
+            {message && <div className="rounded-xl bg-green-50 border border-green-200 p-3 text-[13px] font-bold text-green-700">{message}</div>}
 
-            {error && (
-              <div className="rounded-xl bg-red-50 p-3 text-sm font-medium text-red-700">
-                {error}
-              </div>
-            )}
-
-            {/* SUCESSO */}
-
-            {message && (
-              <div className="rounded-xl bg-green-50 p-3 text-sm font-medium text-green-700">
-                {message}
-              </div>
-            )}
-
-            {/* ENTRAR / CRIAR */}
-
-            <button
-              type="submit"
-              disabled={
-                loading
-              }
-              className="w-full rounded-xl bg-red-600 px-5 py-4 font-bold text-white transition hover:bg-red-700 disabled:bg-zinc-300"
-            >
-              {loading
-                ? "Aguarde..."
-                : mode ===
-                    "login"
-                  ? "Entrar"
-                  : "Criar minha conta"}
+            <button type="submit" disabled={loading} className="w-full h-[50px] rounded-xl bg-[#E30613] font-black text-white text-[15px] hover:bg-[#c00511] transition disabled:bg-zinc-300">
+              {loading? "Aguarde..." : mode === "login"? "Entrar" : "Criar minha conta"}
             </button>
           </form>
 
-          {/* ==================================
-              CONTINUAR SEM LOGIN
-          ================================== */}
-
           <div className="my-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-zinc-200" />
-
-            <span className="text-xs font-semibold text-zinc-400">
-              OU
-            </span>
-
+            <span className="text-[11px] font-black tracking-widest text-zinc-400">OU</span>
             <div className="h-px flex-1 bg-zinc-200" />
           </div>
 
-          <button
-            type="button"
-            onClick={
-              handleGuest
-            }
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-5 py-4 font-bold text-zinc-700 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-          >
-            🍔 Ver cardápio sem entrar
-          </button>
-
-          <p className="mt-3 text-center text-xs leading-5 text-zinc-400">
-            Você pode navegar e adicionar
-            produtos ao carrinho sem criar
-            uma conta.
-          </p>
+          <button type="button" onClick={handleGuest} className="flex w-full h-[50px] items-center justify-center gap-2 rounded-xl border-2 border-zinc-200 bg-white font-black text-zinc-900 hover:bg-zinc-50 transition">🍔 Ver cardápio sem entrar</button>
+          <p className="mt-3 text-center text-[12px] font-medium text-zinc-500">Você pode navegar e adicionar produtos ao carrinho sem criar uma conta.</p>
         </div>
       </div>
     </main>
