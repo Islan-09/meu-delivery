@@ -93,7 +93,7 @@ export default function AdminPage(){
 
           {tab==="commissions" && (
             <div className="space-y-3">
-              <h2 className="text-2xl font-black text-white">Configurar Taxas</h2><p className="text-sm font-bold text-zinc-400 mb-6">Agora cada loja salva separado (bug corrigido)</p>
+              <h2 className="text-2xl font-black text-white">Configurar Taxas</h2><p className="text-sm font-bold text-zinc-400 mb-6">Cada loja salva separado (bug corrigido)</p>
               {finance.map((f:any)=>{
                 const e=editFees[f.restaurant_id]; if(!e) return null;
                 return (
@@ -111,7 +111,7 @@ export default function AdminPage(){
           )}
 
           {selectedStore && (
-            <FullDetailsModal store={selectedStore} editFee={editFees[selectedStore.restaurant_id]} onClose={()=>setSelectedStore(null)} onGoToFee={()=>{setTab("commissions"); setSelectedStore(null);}} />
+            <FullDetailsModal store={selectedStore} editFee={editFees[selectedStore.restaurant_id]} onClose={()=>setSelectedStore(null)} />
           )}
         </div>
       </div>
@@ -119,51 +119,46 @@ export default function AdminPage(){
   );
 }
 
-function FullDetailsModal({store, editFee, onClose, onGoToFee}:{store:any, editFee:any, onClose:()=>void, onGoToFee:()=>void}){
+function FullDetailsModal({store, editFee, onClose}:{store:any, editFee:any, onClose:()=>void}){
   const [data,setData]=useState<any>(null);
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{
-    (async()=>{
-      const id = store.restaurant_id;
-      const {data:rest} = await supabase.from("restaurants").select("*").eq("id", id).maybeSingle();
-      const {data:fin} = await supabase.from("restaurant_finance_settings").select("*").eq("restaurant_id", id).maybeSingle();
-      let app = null, prof = null;
-      if(rest?.user_id){
-        const {data:a} = await supabase.from("restaurant_applications").select("*").eq("user_id", rest.user_id).order("created_at", {ascending:false}).limit(1).maybeSingle();
-        const {data:p} = await supabase.from("profiles").select("*").eq("id", rest.user_id).maybeSingle();
-        app = a; prof = p;
-      }
-      setData({restaurant: rest, finance: fin, application: app, profile: prof});
-      setLoading(false);
-    })();
-  },[store.restaurant_id]);
+  useEffect(()=>{(async()=>{
+    const {data:res, error} = await supabase.rpc("get_admin_restaurant_full_details_v2",{p_restaurant_id:store.restaurant_id});
+    if(error){ console.log(error); const {data:rest}=await supabase.from("restaurants").select("*").eq("id",store.restaurant_id).maybeSingle(); setData({restaurant:rest}); }
+    else setData(res);
+    setLoading(false);
+  })()},[store.restaurant_id]);
 
-  if(loading) return <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center text-white font-black">Carregando dados completos...</div>;
+  if(loading) return <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center text-white font-black text-xl">Carregando dados completos...</div>;
 
-  const r = data?.restaurant || {};
-  const a = data?.application || {};
-  const f = data?.finance || {};
-  const p = data?.profile || {};
-  const Field = ({label, value}:{label:string, value:any}) => (<div><p className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">{label}</p><p className="font-bold text-white text-[13px] mt-1 break-all">{value || '-'}</p></div>);
+  const r=data?.restaurant||{}; const a=data?.application||{}; const f=data?.finance||{}; const p=data?.profile||{};
+  const Field=({label,value}:{label:string,value:any})=>(<div className="bg-[#1a1a1a] rounded-xl p-5"><p className="text-[13px] font-black text-zinc-400 uppercase tracking-widest">{label}</p><p className="font-bold text-white text-[18px] mt-2 break-all leading-tight">{value||'Não informado'}</p></div>);
 
   return (
     <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 overflow-y-auto" onClick={onClose}>
-      <div className="bg-[#151515] border border-white/20 rounded-[24px] w-full max-w-4xl my-8 max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
-        <div className="p-8 border-b border-white/10 flex justify-between items-start sticky top-0 bg-[#151515] z-10 rounded-t-[24px]">
-          <div className="flex gap-4">
-            <div className="w-16 h-16 bg-white text-black rounded-2xl flex items-center justify-center font-black text-3xl">{(r.name || store.restaurant_name)?.[0]?.toUpperCase()}</div>
-            <div><p className="font-black text-white text-2xl">{r.name || store.restaurant_name}</p><p className="text-xs text-zinc-500 mt-1 font-mono">ID: {r.id || store.restaurant_id}</p><span className="mt-2 inline-block px-3 py-1 rounded-full text-[10px] font-black bg-white text-black">{editFee?.type==="fixed"? `R$ ${editFee.amount} / ${editFee.period}` : `${editFee?.percent||0}% por pedido`}</span></div>
+      <div className="bg-[#151515] border border-white/20 rounded-[28px] w-full max-w-5xl my-8 max-h-[95vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="p-10 border-b border-white/10 flex justify-between items-start sticky top-0 bg-[#151515] z-10 rounded-t-[28px]">
+          <div className="flex gap-5">
+            <div className="w-20 h-20 bg-white text-black rounded-2xl flex items-center justify-center font-black text-4xl">{(r.name||store.restaurant_name)?.[0]?.toUpperCase()}</div>
+            <div>
+              <p className="font-black text-white text-3xl">{r.name||store.restaurant_name}</p>
+              <p className="text-sm text-zinc-400 mt-2 font-mono">ID: {(r.id||store.restaurant_id)?.slice(0,8)}...</p>
+              <div className="flex gap-2 mt-3">
+                <span className={`px-4 py-1.5 rounded-full text-sm font-black ${r.is_open?'bg-green-500 text-black':'bg-zinc-700 text-white'}`}>{r.is_open?'● ABERTA':'● FECHADA'}</span>
+                <span className="px-4 py-1.5 rounded-full text-sm font-black bg-white text-black">{editFee?.type==="fixed"?`R$ ${editFee.amount}/${editFee.period}`:`${editFee?.percent||0}% por pedido`}</span>
+              </div>
+            </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-full bg-white/10 text-white font-black">X</button>
+          <button onClick={onClose} className="w-12 h-12 rounded-full bg-white text-black font-black text-xl">X</button>
         </div>
-        <div className="p-8 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-black border border-white/10 rounded-xl p-5"><p className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mb-4">👤 Dono / Responsável Legal</p><div className="space-y-3"><Field label="Nome" value={a.full_name || a.business_name || p.full_name || r.owner_name} /><Field label="Email" value={p.email || a.email} /><Field label="Telefone" value={a.phone || r.phone || r.whatsapp || p.phone} /><Field label="CPF/CNPJ" value={a.cnpj || a.cpf || a.document || r.cnpj || r.cpf} /><Field label="ID Dono" value={r.user_id} /></div></div>
-            <div className="bg-black border border-white/10 rounded-xl p-5"><p className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mb-4">🏪 Dados da Loja</p><div className="space-y-3"><Field label="Nome" value={r.name} /><Field label="Endereço" value={a.address || r.address || [r.street, r.number, r.neighborhood, r.city].filter(Boolean).join(', ')} /><Field label="Categoria" value={r.category || a.category} /><Field label="Criada em" value={r.created_at? new Date(r.created_at).toLocaleString('pt-BR') : '-'} /><Field label="Status" value={a.status || (r.is_active? 'ativa' : 'inativa')} /></div></div>
+
+        <div className="p-10 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="bg-black border border-white/10 rounded-2xl p-6"><p className="text-sm font-black text-white uppercase tracking-widest mb-5">👤 DONO / RESPONSÁVEL LEGAL</p><div className="space-y-4"><Field label="Nome Completo" value={a.full_name||p.full_name||r.owner_name||r.name} /><Field label="E-mail" value={p.email||a.email} /><Field label="Telefone / WhatsApp" value={a.phone||r.phone||p.phone} /><Field label="CPF / CNPJ" value={a.cnpj||a.cpf||a.document||r.cnpj} /></div></div>
+            <div className="bg-black border border-white/10 rounded-2xl p-6"><p className="text-sm font-black text-white uppercase tracking-widest mb-5">🏪 DADOS DA LOJA</p><div className="space-y-4"><Field label="Nome Fantasia" value={r.name} /><Field label="Endereço Completo" value={a.address||r.address||[r.street,r.number,r.neighborhood,r.city].filter(Boolean).join(', ')} /><Field label="Categoria" value={r.category||a.category} /><Field label="Criada em" value={r.created_at?new Date(r.created_at).toLocaleString('pt-BR'):'-'} /></div></div>
           </div>
-          <div className="bg-black border border-white/10 rounded-xl p-5"><p className="text-[11px] font-black text-zinc-500 uppercase tracking-widest mb-4">💰 Financeiro</p><div className="grid grid-cols-2 gap-3"><Field label="Taxa atual" value={f.fee_type==='fixed'? `R$ ${f.fixed_fee_amount} / ${f.fixed_fee_period}` : `${f.commission_percent||0}%`} /><Field label="PIX" value={a.pix_key || a.pix || r.pix_key || r.pix || '-'} /><div className="col-span-2"><Field label="Banco" value={a.bank_info || a.bank_account || [a.bank_name, a.agency, a.account].filter(Boolean).join(' - ') || '-'} /></div></div></div>
-          <div className="flex gap-3"><button onClick={onGoToFee} className="flex-1 h-12 rounded-xl bg-white text-black font-black">% Editar taxa</button><button onClick={onClose} className="flex-1 h-12 rounded-xl bg-white/10 border border-white/20 text-white font-black">Fechar</button></div>
-          <details className="bg-[#0a0a0a] border border-white/10 rounded-xl p-4"><summary className="text-xs font-black text-zinc-400 cursor-pointer">VER JSON BRUTO (todos os campos)</summary><pre className="mt-3 text-[10px] text-zinc-300 overflow-auto max-h-96 whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre></details>
+          <div className="bg-black border border-white/10 rounded-2xl p-6"><p className="text-sm font-black text-white uppercase tracking-widest mb-5">💰 FINANCEIRO / REPASSE</p><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><Field label="Taxa Atual" value={f.fee_type==='fixed'?`R$ ${f.fixed_fee_amount} / ${f.fixed_fee_period}`:`${f.commission_percent||editFee?.percent||0}% por pedido`} /><Field label="Chave PIX" value={a.pix_key||a.pix||r.pix_key||'Não informado'} /><div className="md:col-span-2"><Field label="Dados Bancários" value={a.bank_info||[a.bank_name,a.agency,a.account].filter(Boolean).join(' - ')||'Não informado'} /></div></div></div>
+          <button onClick={onClose} className="w-full h-16 rounded-2xl bg-white text-black font-black text-xl">Fechar</button>
         </div>
       </div>
     </div>
