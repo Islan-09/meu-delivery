@@ -1394,6 +1394,9 @@ export default function PedidosSection() {
       "restaurant"
     ) ?? "";
 
+const isDemoMode =
+  searchParams.get("demo") === "1";
+
   const [
     orders,
     setOrders,
