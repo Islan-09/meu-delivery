@@ -15,7 +15,6 @@ import {
 } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
-import ChatPedido from "@/app/components/ChatPedido";
 
 type OrderItem = {
   name: string;
@@ -499,10 +498,13 @@ export default function PedidoPage() {
   const [routeError, setRouteError] =
     useState("");
 
-  const loadOrder =
-    useCallback(async () => {
+const loadOrder =
+  useCallback(async (showLoading = true) => {
+    if (showLoading) {
       setLoading(true);
-      setError("");
+    }
+
+    setError("");
 
       const {
         data: { session },
@@ -847,9 +849,9 @@ setConversationOrderIds(
     }
 
     const interval =
-      window.setInterval(() => {
-        loadOrder();
-      }, 5000);
+  window.setInterval(() => {
+    loadOrder(false);
+  }, 5000);
 
     return () => {
       window.clearInterval(interval);
@@ -1471,12 +1473,6 @@ setConversationOrderIds(
             })}
           </div>
         </section>
-
-       <ChatPedido
-  orderId={order.order_id}
-  conversationOrderIds={conversationOrderIds}
-/>
-
         <section className="mt-4 rounded-3xl bg-white p-6 shadow-sm">
           <p className="text-xs font-black uppercase text-zinc-400">
             Resumo do pedido

@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from "next/link";
@@ -241,6 +242,16 @@ export default function UserMenu() {
               className="block rounded-xl px-4 py-3 text-sm font-semibold transition hover:bg-zinc-100"
             >
               🧾 Meus pedidos
+            </Link>
+
+            <Link
+              href="/mensagens"
+              onClick={() =>
+                setOpen(false)
+              }
+              className="block rounded-xl px-4 py-3 text-sm font-semibold transition hover:bg-zinc-100"
+            >
+              💬 Mensagens
             </Link>
 
             <Link

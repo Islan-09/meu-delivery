@@ -4,13 +4,12 @@ import {
   useCallback,
   useEffect,
   useState,
+  useRef
 } from "react";
 
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
-
-import ChatPedido from "@/app/components/ChatPedido";
 
 type FulfillmentMethod =
   | "delivery"
@@ -1431,6 +1430,69 @@ type PedidosSectionProps = {
    unreadCounts: Record<string, number>;
 };
 
+let orderSoundContext: AudioContext | null = null;
+
+
+function playOrderNotificationSound() {
+  if (typeof window === "undefined") return;
+
+  const AudioContextConstructor = window.AudioContext;
+
+  if (!AudioContextConstructor) return;
+
+  if (!orderSoundContext) {
+    orderSoundContext = new AudioContextConstructor();
+  }
+
+  const context = orderSoundContext;
+
+  const play = () => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(
+      880,
+      context.currentTime
+    );
+
+    gain.gain.setValueAtTime(
+      0.0001,
+      context.currentTime
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.15,
+      context.currentTime + 0.02
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      context.currentTime + 0.3
+    );
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.3);
+  };
+
+  if (context.state === "suspended") {
+    void context.resume().then(play).catch((error) => {
+      console.error(
+        "Erro ao reproduzir som de pedido:",
+        error
+      );
+    });
+
+    return;
+  }
+
+  play();
+}
+
+
 export default function PedidosSection({
   onOpenMessages,
    unreadCounts,
@@ -1445,6 +1507,44 @@ export default function PedidosSection({
 
 const isDemoMode =
   searchParams.get("demo") === "1";
+
+  const previousOrderIdsRef = useRef<Set<string> | null>(
+  null
+);
+
+  const [soundNewOrders, setSoundNewOrders] =
+  useState(false);
+
+useEffect(() => {
+  if (!restaurantId) return;
+
+  const savedPreference = localStorage.getItem(
+    `delivery-paudalho-sound-new-orders:${restaurantId}`
+  );
+
+  setSoundNewOrders(savedPreference === "on");
+}, [restaurantId]);
+
+
+function toggleOrderSound() {
+  const nextValue = !soundNewOrders;
+
+  setSoundNewOrders(nextValue);
+
+  if (restaurantId) {
+    localStorage.setItem(
+      `delivery-paudalho-sound-new-orders:${restaurantId}`,
+      nextValue ? "on" : "off"
+    );
+  }
+
+  // Ao ativar, testa o áudio durante o clique do usuário.
+  // Isso também ajuda a liberar o áudio no navegador.
+  if (nextValue) {
+    playOrderNotificationSound();
+  }
+}
+
 
   const [
     orders,
@@ -1793,19 +1893,36 @@ const isDemoMode =
               })
             );
 
-        setOrders(
-          paidOrders
-        );
+        const currentOrderIds = new Set(
+  paidOrders.map((order) => order.order_id)
+);
 
-        setError("");
+const previousOrderIds =
+  previousOrderIdsRef.current;
 
-        setLoading(
-          false
-        );
+if (
+  previousOrderIds !== null &&
+  soundNewOrders &&
+  paidOrders.some(
+    (order) =>
+      !previousOrderIds.has(order.order_id)
+  )
+) {
+  playOrderNotificationSound();
+}
+
+previousOrderIdsRef.current = currentOrderIds;
+
+setOrders(paidOrders);
+
+setError("");
+
+setLoading(false);
       },
       [
-        restaurantId,
-      ]
+  restaurantId,
+  soundNewOrders,
+]
     );
 
   useEffect(() => {
@@ -2449,8 +2566,6 @@ const isDemoMode =
       <h3 className="mb-4 text-xl font-black">
         💬 Chat com o cliente
       </h3>
-
-      <ChatPedido orderId={selectedOrder.order_id} />
     </div>
 
         {/* PEDIDO */}
@@ -3281,12 +3396,28 @@ const isDemoMode =
           </p>
         </div>
 
-        <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
-          <span className="font-black text-red-600">
-            {activeOrders}
-          </span>{" "}
-          pedidos ativos
-        </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+  <button
+    type="button"
+    onClick={toggleOrderSound}
+    aria-pressed={soundNewOrders}
+    className={`rounded-xl border px-4 py-3 text-sm font-bold shadow-sm transition ${
+      soundNewOrders
+        ? "border-green-200 bg-green-50 text-green-700"
+        : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+    }`}
+  >
+    🔔 Som de pedidos:{" "}
+    {soundNewOrders ? "Ligado" : "Desligado"}
+  </button>
+
+  <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
+    <span className="font-black text-red-600">
+      {activeOrders}
+    </span>{" "}
+    pedidos ativos
+  </div>
+</div>
       </div>
 
       {/* ==================================

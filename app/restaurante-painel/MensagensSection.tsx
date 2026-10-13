@@ -4,6 +4,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -50,6 +51,84 @@ type MensagensSectionProps = {
   initialOrderId?: string | null;
 };
 
+const MESSAGE_SOUND_STORAGE_PREFIX =
+  "delivery-paudalho-sound-new-messages:";
+
+let messageAudioContext: AudioContext | null = null;
+
+function getMessageAudioContext(): AudioContext | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const AudioContextConstructor = window.AudioContext;
+
+  if (!AudioContextConstructor) {
+    return null;
+  }
+
+  if (!messageAudioContext) {
+    messageAudioContext =
+      new AudioContextConstructor();
+  }
+
+  return messageAudioContext;
+}
+
+function playMessageNotificationSound() {
+  const context = getMessageAudioContext();
+
+  if (!context) {
+    return;
+  }
+
+  const play = () => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+
+    oscillator.frequency.setValueAtTime(
+      880,
+      context.currentTime
+    );
+
+    gain.gain.setValueAtTime(
+      0.0001,
+      context.currentTime
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.15,
+      context.currentTime + 0.02
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      context.currentTime + 0.3
+    );
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.3);
+  };
+
+  if (context.state === "suspended") {
+    void context.resume().then(play).catch((error) => {
+      console.error(
+        "Não foi possível reproduzir o som da mensagem:",
+        error
+      );
+    });
+
+    return;
+  }
+
+  play();
+}
+
 function countUnread(
   orderId: string,
   incomingMessages: ChatMessage[]
@@ -74,7 +153,9 @@ export default function MensagensSection({
   initialOrderId = null,
 }: MensagensSectionProps) {
   const searchParams = useSearchParams();
-  const restaurantId = searchParams.get("restaurant") ?? "";
+
+  const restaurantId =
+    searchParams.get("restaurant") ?? "";
 
   const [conversations, setConversations] =
     useState<CustomerConversation[]>([]);
@@ -85,13 +166,59 @@ export default function MensagensSection({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [soundNewMessages, setSoundNewMessages] =
+    useState(false);
+
+  // Guarda os IDs vistos para não repetir o som
+  // a cada atualização automática da lista.
+  const seenMessageIdsRef =
+    useRef<Set<string> | null>(null);
+
+  // Carrega a preferência salva para esta loja.
   useEffect(() => {
-    setSelectedOrderId(initialOrderId);
-  }, [initialOrderId]);
+    if (!restaurantId) {
+      setSoundNewMessages(false);
+      return;
+    }
+
+    const savedPreference = localStorage.getItem(
+      `${MESSAGE_SOUND_STORAGE_PREFIX}${restaurantId}`
+    );
+
+    setSoundNewMessages(savedPreference === "on");
+
+    // Uma nova loja representa outra lista de mensagens.
+    seenMessageIdsRef.current = null;
+  }, [restaurantId]);
+
+  function toggleMessageSound() {
+    const nextValue = !soundNewMessages;
+
+    setSoundNewMessages(nextValue);
+
+    if (restaurantId) {
+      localStorage.setItem(
+        `${MESSAGE_SOUND_STORAGE_PREFIX}${restaurantId}`,
+        nextValue ? "on" : "off"
+      );
+    }
+
+    // A interação do usuário permite preparar o áudio
+    // para as próximas notificações no navegador.
+    if (nextValue) {
+      const context = getMessageAudioContext();
+
+      if (context?.state === "suspended") {
+        void context.resume().catch(console.error);
+      }
+    }
+  }
 
   const loadConversations = useCallback(
     async (showLoading = true) => {
-      if (showLoading) setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
 
       setError("");
 
@@ -129,6 +256,7 @@ export default function MensagensSection({
           "Erro ao carregar pedidos:",
           ordersError
         );
+
         setConversations([]);
         setError("Não foi possível carregar os pedidos.");
         setLoading(false);
@@ -178,7 +306,10 @@ export default function MensagensSection({
 
       for (const row of orderOwners ?? []) {
         if (row.customer_id) {
-          customerByOrder.set(row.id, row.customer_id);
+          customerByOrder.set(
+            row.id,
+            row.customer_id
+          );
         }
       }
 
@@ -187,7 +318,9 @@ export default function MensagensSection({
         error: messagesError,
       } = await supabase
         .from("chat_messages")
-        .select("id, order_id, sender_id, message, created_at")
+        .select(
+          "id, order_id, sender_id, message, created_at"
+        )
         .in("order_id", orderIds)
         .order("created_at", { ascending: true });
 
@@ -206,6 +339,29 @@ export default function MensagensSection({
       const allMessages =
         (messagesData ?? []) as ChatMessage[];
 
+      // Na primeira carga, registra o histórico existente
+      // sem tocar som para mensagens antigas.
+      const previouslySeenIds =
+        seenMessageIdsRef.current;
+
+      if (previouslySeenIds !== null) {
+        const hasNewCustomerMessage = allMessages.some(
+          (item) =>
+            item.sender_id !== currentUserId &&
+            !previouslySeenIds.has(item.id)
+        );
+
+        if (soundNewMessages && hasNewCustomerMessage) {
+          playMessageNotificationSound();
+        }
+      }
+
+      // Atualiza a lista de IDs antes que outra atualização
+      // possa tratar a mesma mensagem como nova novamente.
+      seenMessageIdsRef.current = new Set(
+        allMessages.map((item) => item.id)
+      );
+
       const messagesByOrder = new Map<
         string,
         ChatMessage[]
@@ -219,7 +375,7 @@ export default function MensagensSection({
         messagesByOrder.set(item.order_id, current);
       }
 
-      // Agrupa as mensagens dos pedidos pelo cliente.
+      // Agrupa os pedidos pelo cliente.
       const grouped = new Map<
         string,
         CustomerConversation
@@ -233,8 +389,10 @@ export default function MensagensSection({
           (item) => item.sender_id !== currentUserId
         );
 
-        // Só mostra clientes que já enviaram mensagens.
-        if (incomingMessages.length === 0) continue;
+        // Só lista clientes que já enviaram mensagens.
+        if (incomingMessages.length === 0) {
+          continue;
+        }
 
         const customerId = customerByOrder.get(
           order.order_id
@@ -251,7 +409,9 @@ export default function MensagensSection({
         const lastMessage =
           orderMessages[orderMessages.length - 1];
 
-        if (!lastMessage) continue;
+        if (!lastMessage) {
+          continue;
+        }
 
         const orderConversation: OrderConversation = {
           order,
@@ -269,8 +429,7 @@ export default function MensagensSection({
         if (!customer) {
           customer = {
             customerId,
-            customerName:
-              order.customer_name || "Cliente",
+            customerName: order.customer_name || "Cliente",
             orders: [],
             lastMessage,
             unreadCount: 0,
@@ -295,7 +454,7 @@ export default function MensagensSection({
       const nextConversations =
         Array.from(grouped.values());
 
-      // O pedido com a mensagem mais recente fica primeiro.
+      // Coloca primeiro o pedido com a mensagem mais recente.
       for (const customer of nextConversations) {
         customer.orders.sort(
           (a, b) =>
@@ -324,9 +483,13 @@ export default function MensagensSection({
               )
           );
 
-          if (exists) return preferredId;
+          if (exists) {
+            return preferredId;
+          }
 
-          if (initialOrderId) return null;
+          if (initialOrderId) {
+            return null;
+          }
         }
 
         return (
@@ -337,7 +500,11 @@ export default function MensagensSection({
 
       setLoading(false);
     },
-    [restaurantId, initialOrderId]
+    [
+      restaurantId,
+      initialOrderId,
+      soundNewMessages,
+    ]
   );
 
   useEffect(() => {
@@ -423,14 +590,30 @@ export default function MensagensSection({
           </p>
         </div>
 
-        {totalUnread > 0 && (
-          <span className="rounded-full bg-red-600 px-3 py-1.5 text-sm font-black text-white">
-            {totalUnread}{" "}
-            {totalUnread === 1
-              ? "mensagem não lida"
-              : "mensagens não lidas"}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleMessageSound}
+            aria-pressed={soundNewMessages}
+            className={`rounded-xl border px-4 py-2.5 text-sm font-bold shadow-sm transition ${
+              soundNewMessages
+                ? "border-green-200 bg-green-50 text-green-700"
+                : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+            }`}
+          >
+            🔔 Som de mensagens:{" "}
+            {soundNewMessages ? "Ligado" : "Desligado"}
+          </button>
+
+          {totalUnread > 0 && (
+            <span className="rounded-full bg-red-600 px-3 py-1.5 text-sm font-black text-white">
+              {totalUnread}{" "}
+              {totalUnread === 1
+                ? "mensagem não lida"
+                : "mensagens não lidas"}
+            </span>
+          )}
+        </div>
       </header>
 
       {error && (
