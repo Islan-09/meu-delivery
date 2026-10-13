@@ -15,6 +15,7 @@ import {
 } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
+import ChatPedido from "@/app/components/ChatPedido";
 
 type OrderItem = {
   name: string;
@@ -480,6 +481,9 @@ export default function PedidoPage() {
       null
     );
 
+    const [conversationOrderIds, setConversationOrderIds] =
+  useState<string[]>([]);
+
   const [pickupCode, setPickupCode] =
     useState("");
 
@@ -551,6 +555,22 @@ export default function PedidoPage() {
         setLoading(false);
         return;
       }
+
+      const relatedOrderIds = (
+  (data ?? []) as Order[]
+)
+  .filter(
+    (item) =>
+      item.restaurant_id ===
+      foundBase.restaurant_id
+  )
+  .map((item) => item.order_id);
+
+setConversationOrderIds(
+  relatedOrderIds.length > 0
+    ? relatedOrderIds
+    : [foundBase.order_id]
+);
 
       const {
         data:
@@ -1451,6 +1471,11 @@ export default function PedidoPage() {
             })}
           </div>
         </section>
+
+       <ChatPedido
+  orderId={order.order_id}
+  conversationOrderIds={conversationOrderIds}
+/>
 
         <section className="mt-4 rounded-3xl bg-white p-6 shadow-sm">
           <p className="text-xs font-black uppercase text-zinc-400">

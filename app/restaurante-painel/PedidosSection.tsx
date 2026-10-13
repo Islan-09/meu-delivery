@@ -10,6 +10,8 @@ import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
 
+import ChatPedido from "@/app/components/ChatPedido";
+
 type FulfillmentMethod =
   | "delivery"
   | "pickup";
@@ -159,10 +161,11 @@ type Order = {
     OrderItem[];
 };
 
+  
 type OrderCardProps = {
   order: Order;
-
   updating: string;
+ unreadCount?: number;
 
   onOpen: (
     orderId: string
@@ -175,19 +178,22 @@ type OrderCardProps = {
   onCancel: (
     orderId: string
   ) => void;
+
+  onMessages: (
+    orderId: string
+  ) => void;
 };
+
 
 type OrderColumnProps = {
   title: string;
   subtitle: string;
   icon: string;
-
   orders: Order[];
-
   headerClass: string;
   countClass: string;
-
   updating: string;
+  unreadCounts: Record<string, number>;
 
   onOpen: (
     orderId: string
@@ -198,6 +204,10 @@ type OrderColumnProps = {
   ) => void;
 
   onCancel: (
+    orderId: string
+  ) => void;
+
+  onMessages: (
     orderId: string
   ) => void;
 };
@@ -1104,45 +1114,48 @@ function orderDateKey(
   return `${year}-${month}-${day}`;
 }
 
-// ==========================================
-// CARD PEQUENO
-// ==========================================
+  // ==========================================
+  // CARD PEQUENO
+  // ==========================================
 
+  
 function OrderCard({
   order,
   updating,
   onOpen,
   onAccept,
   onCancel,
+  onMessages,
+  unreadCount = 0,
 }: OrderCardProps) {
-  const isPickup =
-    order.fulfillment_method ===
-    "pickup";
+    const isPickup =
+      order.fulfillment_method ===
+      "pickup";
 
-  const itemCount =
-    (
-      order.items ??
-      []
-    ).reduce(
+    const itemCount =
       (
-        total,
-        item
-      ) =>
-        total +
-        Number(
-          item.quantity ??
-            0
-        ),
-      0
-    );
+        order.items ??
+        []
+      ).reduce(
+        (
+          total,
+          item
+        ) =>
+          total +
+          Number(
+            item.quantity ??
+              0
+          ),
+        0
+      );
 
-  return (
-    <article
-      onClick={() =>
-        onOpen(
-          order.order_id
-        )
-      }
+    return (
+      <article
+        onClick={() =>
+          onOpen(
+            order.order_id
+          )
+        }
       className="w-full cursor-pointer overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
     >
       {/* CONTEÚDO */}
@@ -1275,18 +1288,40 @@ function OrderCard({
         </div>
       )}
 
+
       {/* ==================================
-          VER PEDIDO
+          MENSAGENS E VER PEDIDO
       ================================== */}
 
-      {order.status !==
-        "pending" && (
-        <div className="border-t border-zinc-100 px-3 py-3">
-          <p className="text-center text-xs font-black text-red-600">
-            Ver pedido →
-          </p>
-        </div>
-      )}
+      <div className="grid grid-cols-2 gap-2 border-t border-zinc-100 p-3">
+        <button
+  type="button"
+  onClick={(event) => {
+    event.stopPropagation();
+    onMessages(order.order_id);
+  }}
+  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-2 py-2.5 text-xs font-black text-white transition hover:bg-blue-700"
+>
+  <span>💬 Mensagens</span>
+
+  {unreadCount > 0 && (
+    <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-black text-white">
+      {unreadCount > 99 ? "99+" : unreadCount}
+    </span>
+  )}
+</button>
+
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpen(order.order_id);
+          }}
+          className="rounded-xl border border-zinc-200 px-2 py-2.5 text-xs font-black text-zinc-700 transition hover:bg-zinc-50"
+        >
+          Ver pedido →
+        </button>
+      </div>
     </article>
   );
 }
@@ -1303,9 +1338,11 @@ function OrderColumn({
   headerClass,
   countClass,
   updating,
+ unreadCounts,
   onOpen,
   onAccept,
   onCancel,
+  onMessages,
 }: OrderColumnProps) {
   return (
     <section className="min-w-0">
@@ -1376,6 +1413,10 @@ function OrderColumn({
                 onCancel={
                   onCancel
                 }
+                onMessages={
+                  onMessages
+                }
+                unreadCount={unreadCounts[order.order_id] ?? 0}
               />
             )
           )
@@ -1385,7 +1426,15 @@ function OrderColumn({
   );
 }
 
-export default function PedidosSection() {
+type PedidosSectionProps = {
+  onOpenMessages: (orderId: string) => void;
+   unreadCounts: Record<string, number>;
+};
+
+export default function PedidosSection({
+  onOpenMessages,
+   unreadCounts,
+}: PedidosSectionProps) {
   const searchParams =
     useSearchParams();
 
@@ -2390,6 +2439,20 @@ const isDemoMode =
           ← Voltar para pedidos
         </button>
 
+        ```
+    {/* CHAT COM O CLIENTE */}
+
+    <div
+  id="chat-pedido"
+  className="mb-5 overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm"
+>
+      <h3 className="mb-4 text-xl font-black">
+        💬 Chat com o cliente
+      </h3>
+
+      <ChatPedido orderId={selectedOrder.order_id} />
+    </div>
+
         {/* PEDIDO */}
 
         <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
@@ -2826,6 +2889,7 @@ const isDemoMode =
             </div>
           </div>
 
+
           {/* ==================================
               AÇÕES
           ================================== */}
@@ -2833,60 +2897,60 @@ const isDemoMode =
           <div className="border-t border-zinc-100 p-6">
             {/* NOVO */}
 
-            {selectedOrder.status ===
-              "pending" &&
-              selectedOrder.payment_status ===
-                "paid" && (
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  disabled={
-                    updating ===
-                    selectedOrder.order_id
-                  }
-                  onClick={() =>
-                    acceptOrder(
-                      selectedOrder.order_id
-                    )
-                  }
-                  className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
-                >
-                  ✅ Aceitar pedido
-                </button>
+            {selectedOrder.status === "pending" &&
+              selectedOrder.payment_status === "paid" && (
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={updating === selectedOrder.order_id}
+                    onClick={() =>
+                      acceptOrder(selectedOrder.order_id)
+                    }
+                    className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
+                  >
+                    ✅ Aceitar pedido
+                  </button>
 
-                <button
-                  type="button"
-                  disabled={
-                    updating ===
-                    selectedOrder.order_id
-                  }
-                  onClick={() =>
-                    cancelOrder(
-                      selectedOrder.order_id
-                    )
-                  }
-                  className="rounded-xl border border-red-500 px-6 py-3 font-black text-red-600"
-                >
-                  Cancelar
-                </button>
-              </div>
-            )}
+                  <button
+                    type="button"
+                    disabled={updating === selectedOrder.order_id}
+                    onClick={() =>
+                      cancelOrder(selectedOrder.order_id)
+                    }
+                    className="rounded-xl border border-red-500 px-6 py-3 font-black text-red-600 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
+
+            {/* MENSAGENS — DISPONÍVEL EM TODAS AS ETAPAS */}
+
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById("chat-pedido")
+                    ?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    })
+                }
+                className="rounded-xl bg-blue-600 px-6 py-3 font-black text-white hover:bg-blue-700"
+              >
+                💬 Mensagens
+              </button>
+            </div>
 
             {/* ACEITO */}
 
-            {selectedOrder.status ===
-              "accepted" && (
+            {selectedOrder.status === "accepted" && (
               <button
                 type="button"
-                disabled={
-                  updating ===
-                  selectedOrder.order_id
-                }
+                disabled={updating === selectedOrder.order_id}
                 onClick={() =>
-                  updateStatus(
-                    selectedOrder.order_id,
-                    "preparing"
-                  )
+                  updateStatus(selectedOrder.order_id, "preparing")
                 }
                 className="rounded-xl bg-orange-500 px-6 py-3 font-black text-white disabled:bg-zinc-300"
               >
@@ -2896,19 +2960,12 @@ const isDemoMode =
 
             {/* PREPARANDO */}
 
-            {selectedOrder.status ===
-              "preparing" && (
+            {selectedOrder.status === "preparing" && (
               <button
                 type="button"
-                disabled={
-                  updating ===
-                  selectedOrder.order_id
-                }
+                disabled={updating === selectedOrder.order_id}
                 onClick={() =>
-                  updateStatus(
-                    selectedOrder.order_id,
-                    "ready"
-                  )
+                  updateStatus(selectedOrder.order_id, "ready")
                 }
                 className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
               >
@@ -2922,244 +2979,147 @@ const isDemoMode =
                 RETIRADA NA LOJA
             ================================== */}
 
-            {selectedOrder.status ===
-              "ready" &&
-              isPickup && (
-                <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
-                  <p className="text-lg font-black text-orange-800">
-                    🏪 Aguardando cliente
-                  </p>
+            {selectedOrder.status === "ready" && isPickup && (
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+                <p className="text-lg font-black text-orange-800">
+                  🏪 Aguardando cliente
+                </p>
 
-                  <p className="mt-2 text-sm text-orange-700">
-                    Peça ao cliente o código de
-                    retirada de 4 caracteres.
-                  </p>
+                <p className="mt-2 text-sm text-orange-700">
+                  Peça ao cliente o código de retirada de 4 caracteres.
+                </p>
 
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <input
-                      value={
-                        customerCodes[
-                          selectedOrder.order_id
-                        ] ?? ""
-                      }
-                      onChange={(
-                        event
-                      ) => {
-                        const value =
-                          event.target.value
-                            .toUpperCase()
-                            .replace(
-                              /[^A-Z0-9]/g,
-                              ""
-                            )
-                            .slice(
-                              0,
-                              4
-                            );
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    value={customerCodes[selectedOrder.order_id] ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, "")
+                        .slice(0, 4);
 
-                        setCustomerCodes(
-                          (
-                            current
-                          ) => ({
-                            ...current,
+                      setCustomerCodes((current) => ({
+                        ...current,
+                        [selectedOrder.order_id]: value,
+                      }));
 
-                            [selectedOrder.order_id]:
-                              value,
-                          })
-                        );
+                      setCustomerCodeErrors((current) => ({
+                        ...current,
+                        [selectedOrder.order_id]: "",
+                      }));
+                    }}
+                    maxLength={4}
+                    placeholder=""
+                    className="w-full rounded-xl border border-orange-300 bg-white px-4 py-3 text-center text-xl font-black uppercase tracking-[0.2em] outline-none sm:w-48"
+                  />
 
-                        setCustomerCodeErrors(
-                          (
-                            current
-                          ) => ({
-                            ...current,
-
-                            [selectedOrder.order_id]:
-                              "",
-                          })
-                        );
-                      }}
-                      maxLength={
-                        4
-                      }
-                     placeholder=""
-                      className="w-full rounded-xl border border-orange-300 bg-white px-4 py-3 text-center text-xl font-black uppercase tracking-[0.2em] outline-none sm:w-48"
-                    />
-
-                    <button
-                      type="button"
-                      disabled={
-                        updating ===
-                          selectedOrder.order_id ||
-                        (
-                          customerCodes[
-                            selectedOrder.order_id
-                          ] ?? ""
-                        ).length !==
-                          4
-                      }
-                      onClick={() =>
-                        confirmCustomerPickup(
-                          selectedOrder.order_id
-                        )
-                      }
-                      className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
-                    >
-                      ✅ Confirmar retirada
-                    </button>
-                  </div>
-
-                  {customerCodeErrors[
-                    selectedOrder.order_id
-                  ] && (
-                    <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
-                      ⚠️{" "}
-                      {
-                        customerCodeErrors[
-                          selectedOrder.order_id
-                        ]
-                      }
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    disabled={
+                      updating === selectedOrder.order_id ||
+                      (customerCodes[selectedOrder.order_id] ?? "").length !== 4
+                    }
+                    onClick={() =>
+                      confirmCustomerPickup(selectedOrder.order_id)
+                    }
+                    className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
+                  >
+                    ✅ Confirmar retirada
+                  </button>
                 </div>
-              )}
+
+                {customerCodeErrors[selectedOrder.order_id] && (
+                  <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                    ⚠️ {customerCodeErrors[selectedOrder.order_id]}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ==================================
                 ENTREGA PRONTA
             ================================== */}
 
-            {selectedOrder.status ===
-              "ready" &&
-              !isPickup && (
-                <div className="rounded-xl bg-green-50 p-4">
-                  <p className="font-black text-green-700">
-                    📦 Pedido pronto
-                  </p>
+            {selectedOrder.status === "ready" && !isPickup && (
+              <div className="rounded-xl bg-green-50 p-4">
+                <p className="font-black text-green-700">
+                  📦 Pedido pronto
+                </p>
 
-                  <p className="mt-1 text-sm text-green-600">
-                    Aguardando um entregador
-                    aceitar.
-                  </p>
-                </div>
-              )}
+                <p className="mt-1 text-sm text-green-600">
+                  Aguardando um entregador aceitar.
+                </p>
+              </div>
+            )}
 
             {/* ==================================
                 MOTOBOY
             ================================== */}
 
-            {selectedOrder.status ===
-              "driver_assigned" &&
-              !isPickup && (
-                <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5">
-                  <p className="font-black text-yellow-800">
-                    🛵 Entregador chegou?
-                  </p>
+            {selectedOrder.status === "driver_assigned" && !isPickup && (
+              <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-5">
+                <p className="font-black text-yellow-800">
+                  🛵 Entregador chegou?
+                </p>
 
-                  <p className="mt-2 text-sm text-yellow-700">
-                    Peça o código de coleta que
-                    aparece para o entregador.
-                  </p>
+                <p className="mt-2 text-sm text-yellow-700">
+                  Peça o código de coleta que aparece para o entregador.
+                </p>
 
-                  <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                    <input
-                      value={
-                        driverCodes[
-                          selectedOrder.order_id
-                        ] ?? ""
-                      }
-                      onChange={(
-                        event
-                      ) => {
-                        const value =
-                          event.target.value
-                            .toUpperCase()
-                            .replace(
-                              /[^A-Z0-9]/g,
-                              ""
-                            )
-                            .slice(
-                              0,
-                              4
-                            );
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <input
+                    value={driverCodes[selectedOrder.order_id] ?? ""}
+                    onChange={(event) => {
+                      const value = event.target.value
+                        .toUpperCase()
+                        .replace(/[^A-Z0-9]/g, "")
+                        .slice(0, 4);
 
-                        setDriverCodes(
-                          (
-                            current
-                          ) => ({
-                            ...current,
+                      setDriverCodes((current) => ({
+                        ...current,
+                        [selectedOrder.order_id]: value,
+                      }));
 
-                            [selectedOrder.order_id]:
-                              value,
-                          })
-                        );
+                      setDriverCodeErrors((current) => ({
+                        ...current,
+                        [selectedOrder.order_id]: "",
+                      }));
+                    }}
+                    maxLength={4}
+                    placeholder=""
+                    className="w-full rounded-xl border border-yellow-300 bg-white px-4 py-3 text-center text-xl font-black uppercase tracking-[0.2em] sm:w-48"
+                  />
 
-                        setDriverCodeErrors(
-                          (
-                            current
-                          ) => ({
-                            ...current,
-
-                            [selectedOrder.order_id]:
-                              "",
-                          })
-                        );
-                      }}
-                      maxLength={
-                        4
-                      }
-                      placeholder=""
-                      className="w-full rounded-xl border border-yellow-300 bg-white px-4 py-3 text-center text-xl font-black uppercase tracking-[0.2em] sm:w-48"
-                    />
-
-                    <button
-                      type="button"
-                      disabled={
-                        updating ===
-                          selectedOrder.order_id ||
-                        (
-                          driverCodes[
-                            selectedOrder.order_id
-                          ] ?? ""
-                        ).length !==
-                          4
-                      }
-                      onClick={() =>
-                        confirmDriverPickup(
-                          selectedOrder.order_id
-                        )
-                      }
-                      className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
-                    >
-                      ✅ Confirmar coleta
-                    </button>
-                  </div>
-
-                  {driverCodeErrors[
-                    selectedOrder.order_id
-                  ] && (
-                    <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
-                      ⚠️{" "}
-                      {
-                        driverCodeErrors[
-                          selectedOrder.order_id
-                        ]
-                      }
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    disabled={
+                      updating === selectedOrder.order_id ||
+                      (driverCodes[selectedOrder.order_id] ?? "").length !== 4
+                    }
+                    onClick={() =>
+                      confirmDriverPickup(selectedOrder.order_id)
+                    }
+                    className="rounded-xl bg-green-600 px-6 py-3 font-black text-white disabled:bg-zinc-300"
+                  >
+                    ✅ Confirmar coleta
+                  </button>
                 </div>
-              )}
+
+                {driverCodeErrors[selectedOrder.order_id] && (
+                  <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">
+                    ⚠️ {driverCodeErrors[selectedOrder.order_id]}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* ==================================
                 CONCLUÍDO
             ================================== */}
 
-            {selectedOrder.status ===
-              "delivered" && (
+            {selectedOrder.status === "delivered" && (
               <div className="rounded-xl bg-green-50 p-4 font-black text-green-700">
-                ✅{" "}
-                {isPickup
-                  ? "Retirada concluída"
-                  : "Pedido entregue"}
+                ✅ {isPickup ? "Retirada concluída" : "Pedido entregue"}
               </div>
             )}
 
@@ -3167,8 +3127,7 @@ const isDemoMode =
                 CANCELADO
             ================================== */}
 
-            {selectedOrder.status ===
-              "cancelled" && (
+            {selectedOrder.status === "cancelled" && (
               <div className="rounded-xl bg-red-50 p-4 font-black text-red-700">
                 ❌ Pedido cancelado
               </div>
@@ -3183,222 +3142,119 @@ const isDemoMode =
   // PESQUISA + PERÍODO + STATUS
   // ==========================================
 
-  const normalizedSearch =
-    normalizeSearchText(
-      searchTerm
-    );
+  const normalizedSearch = normalizeSearchText(searchTerm);
 
-  function orderMatchesStatusFilter(
-    order: Order
-  ) {
-    if (
-      statusFilter ===
-      "all"
-    ) {
+  function orderMatchesStatusFilter(order: Order) {
+    if (statusFilter === "all") {
       return true;
     }
 
-    if (
-      statusFilter ===
-      "new"
-    ) {
+    if (statusFilter === "new") {
       return (
-        order.status ===
-          "pending" &&
-        order.payment_status ===
-          "paid"
+        order.status === "pending" &&
+        order.payment_status === "paid"
       );
     }
 
-    if (
-      statusFilter ===
-      "preparing"
-    ) {
+    if (statusFilter === "preparing") {
       return (
-        order.status ===
-          "accepted" ||
-        order.status ===
-          "preparing"
+        order.status === "accepted" ||
+        order.status === "preparing"
       );
     }
 
-    if (
-      statusFilter ===
-      "ready"
-    ) {
-      return (
-        order.status ===
-        "ready"
-      );
+    if (statusFilter === "ready") {
+      return order.status === "ready";
     }
 
-    if (
-      statusFilter ===
-      "delivery"
-    ) {
+    if (statusFilter === "delivery") {
       return [
         "driver_assigned",
         "picked_up",
         "delivering",
-      ].includes(
-        order.status
-      );
+      ].includes(order.status);
     }
 
-    if (
-      statusFilter ===
-      "finished"
-    ) {
-      return (
-        order.status ===
-        "delivered"
-      );
+    if (statusFilter === "finished") {
+      return order.status === "delivered";
     }
 
-    if (
-      statusFilter ===
-      "cancelled"
-    ) {
-      return (
-        order.status ===
-        "cancelled"
-      );
+    if (statusFilter === "cancelled") {
+      return order.status === "cancelled";
     }
 
     return true;
   }
 
-  const hasInvalidDateRange =
-    Boolean(
-      dateFrom &&
-      dateTo &&
-      dateFrom >
-        dateTo
-    );
+  const hasInvalidDateRange = Boolean(
+    dateFrom && dateTo && dateFrom > dateTo
+  );
 
-  const filteredResults =
-    hasInvalidDateRange
-      ? []
-      : orders.filter(
-          (
-            order
-          ) => {
-            const matchesName =
-              !normalizedSearch ||
-              normalizeSearchText(
-                order.customer_name
-              ).includes(
-                normalizedSearch
-              );
+  const filteredResults = hasInvalidDateRange
+    ? []
+    : orders.filter((order) => {
+        const matchesName =
+          !normalizedSearch ||
+          normalizeSearchText(order.customer_name).includes(
+            normalizedSearch
+          );
 
-            const orderDate =
-              orderDateKey(
-                order.created_at
-              );
+        const orderDate = orderDateKey(order.created_at);
+        const matchesStartDate = !dateFrom || orderDate >= dateFrom;
+        const matchesEndDate = !dateTo || orderDate <= dateTo;
+        const matchesStatus = orderMatchesStatusFilter(order);
 
-            const matchesStartDate =
-              !dateFrom ||
-              orderDate >=
-                dateFrom;
-
-            const matchesEndDate =
-              !dateTo ||
-              orderDate <=
-                dateTo;
-
-            const matchesStatus =
-              orderMatchesStatusFilter(
-                order
-              );
-
-            return (
-              matchesName &&
-              matchesStartDate &&
-              matchesEndDate &&
-              matchesStatus
-            );
-          }
+        return (
+          matchesName &&
+          matchesStartDate &&
+          matchesEndDate &&
+          matchesStatus
         );
+      });
 
   const isFiltering =
-    normalizedSearch.length >
-      0 ||
-    Boolean(
-      dateFrom ||
-      dateTo
-    ) ||
-    statusFilter !==
-      "all";
+    normalizedSearch.length > 0 ||
+    Boolean(dateFrom || dateTo) ||
+    statusFilter !== "all";
 
   // ==========================================
   // SEPARAR PEDIDOS NAS COLUNAS
   // ==========================================
 
-  const newOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status ===
-          "pending" &&
-        order.payment_status ===
-          "paid"
-    );
+  const newOrders = orders.filter(
+    (order) =>
+      order.status === "pending" &&
+      order.payment_status === "paid"
+  );
 
-  const preparingOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status ===
-          "accepted" ||
-        order.status ===
-          "preparing"
-    );
+  const preparingOrders = orders.filter(
+    (order) =>
+      order.status === "accepted" ||
+      order.status === "preparing"
+  );
 
-  const readyOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status ===
-        "ready"
-    );
+  const readyOrders = orders.filter(
+    (order) => order.status === "ready"
+  );
 
-  const deliveryOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status ===
-          "driver_assigned" ||
-        order.status ===
-          "picked_up" ||
-        order.status ===
-          "delivering"
-    );
+  const deliveryOrders = orders.filter(
+    (order) =>
+      order.status === "driver_assigned" ||
+      order.status === "picked_up" ||
+      order.status === "delivering"
+  );
 
-  const finishedOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status ===
-          "delivered" ||
-        order.status ===
-          "cancelled"
-    );
+  const finishedOrders = orders.filter(
+    (order) =>
+      order.status === "delivered" ||
+      order.status === "cancelled"
+  );
 
-  const activeOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        order.status !==
-          "delivered" &&
-        order.status !==
-          "cancelled"
-    ).length;
+  const activeOrders = orders.filter(
+    (order) =>
+      order.status !== "delivered" &&
+      order.status !== "cancelled"
+  ).length;
 
   // ==========================================
   // LISTA / KANBAN
@@ -3421,16 +3277,13 @@ const isDemoMode =
           </h2>
 
           <p className="mt-1 text-zinc-500">
-            Acompanhe todos os pedidos por
-            etapa.
+            Acompanhe todos os pedidos por etapa.
           </p>
         </div>
 
         <div className="rounded-xl bg-white px-4 py-3 shadow-sm">
           <span className="font-black text-red-600">
-            {
-              activeOrders
-            }
+            {activeOrders}
           </span>{" "}
           pedidos ativos
         </div>
@@ -3440,8 +3293,7 @@ const isDemoMode =
           PESQUISA E FILTROS
       ================================== */}
 
-      {orders.length >
-        0 && (
+      {orders.length > 0 && (
         <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-5">
           <div>
             <h3 className="text-base font-black text-zinc-900">
@@ -3465,15 +3317,9 @@ const isDemoMode =
               <input
                 id="customer-search"
                 type="text"
-                value={
-                  searchTerm
-                }
-                onChange={(
-                  event
-                ) =>
-                  setSearchTerm(
-                    event.target.value
-                  )
+                value={searchTerm}
+                onChange={(event) =>
+                  setSearchTerm(event.target.value)
                 }
                 placeholder=""
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 font-semibold outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
@@ -3491,19 +3337,10 @@ const isDemoMode =
               <input
                 id="date-from"
                 type="date"
-                value={
-                  dateFrom
-                }
-                max={
-                  dateTo ||
-                  undefined
-                }
-                onChange={(
-                  event
-                ) =>
-                  setDateFrom(
-                    event.target.value
-                  )
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(event) =>
+                  setDateFrom(event.target.value)
                 }
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 font-semibold outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
               />
@@ -3520,19 +3357,10 @@ const isDemoMode =
               <input
                 id="date-to"
                 type="date"
-                value={
-                  dateTo
-                }
-                min={
-                  dateFrom ||
-                  undefined
-                }
-                onChange={(
-                  event
-                ) =>
-                  setDateTo(
-                    event.target.value
-                  )
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(event) =>
+                  setDateTo(event.target.value)
                 }
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 font-semibold outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
               />
@@ -3548,58 +3376,29 @@ const isDemoMode =
 
               <select
                 id="status-filter"
-                value={
-                  statusFilter
-                }
-                onChange={(
-                  event
-                ) =>
+                value={statusFilter}
+                onChange={(event) =>
                   setStatusFilter(
-                    event.target
-                      .value as OrderSearchStatus
+                    event.target.value as OrderSearchStatus
                   )
                 }
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-3 font-semibold outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
               >
-                <option value="all">
-                  Todos
-                </option>
-
-                <option value="new">
-                  Novos
-                </option>
-
-                <option value="preparing">
-                  Em preparo
-                </option>
-
-                <option value="ready">
-                  Prontos
-                </option>
-
-                <option value="delivery">
-                  Em entrega
-                </option>
-
-                <option value="finished">
-                  Finalizados
-                </option>
-
-                <option value="cancelled">
-                  Cancelados
-                </option>
+                <option value="all">Todos</option>
+                <option value="new">Novos</option>
+                <option value="preparing">Em preparo</option>
+                <option value="ready">Prontos</option>
+                <option value="delivery">Em entrega</option>
+                <option value="finished">Finalizados</option>
+                <option value="cancelled">Cancelados</option>
               </select>
             </div>
 
             <div className="flex items-end">
               <button
                 type="button"
-                disabled={
-                  !isFiltering
-                }
-                onClick={
-                  clearOrderFilters
-                }
+                disabled={!isFiltering}
+                onClick={clearOrderFilters}
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-5 text-sm font-black text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto"
               >
                 Limpar
@@ -3613,21 +3412,15 @@ const isDemoMode =
             </div>
           )}
 
-          {isFiltering &&
-            !hasInvalidDateRange && (
+          {isFiltering && !hasInvalidDateRange && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-4">
               <p className="text-sm text-zinc-500">
                 Mostrando somente os pedidos que atendem aos filtros selecionados.
               </p>
 
               <span className="rounded-lg bg-zinc-100 px-3 py-1.5 text-sm font-black text-zinc-700">
-                {
-                  filteredResults.length
-                }{" "}
-                {filteredResults.length ===
-                1
-                  ? "pedido"
-                  : "pedidos"}
+                {filteredResults.length}{" "}
+                {filteredResults.length === 1 ? "pedido" : "pedidos"}
               </span>
             </div>
           )}
@@ -3640,10 +3433,7 @@ const isDemoMode =
 
       {error && (
         <div className="mt-5 rounded-xl bg-red-50 p-4 font-bold text-red-700">
-          ⚠️{" "}
-          {
-            error
-          }
+          ⚠️ {error}
         </div>
       )}
 
@@ -3651,246 +3441,171 @@ const isDemoMode =
           SEM NENHUM PEDIDO
       ================================== */}
 
-      {!error &&
-        orders.length ===
-          0 && (
-          <div className="mt-6 rounded-3xl bg-white p-10 text-center shadow-sm">
-            <div className="text-5xl">
-              🔔
-            </div>
+      {!error && orders.length === 0 && (
+        <div className="mt-6 rounded-3xl bg-white p-10 text-center shadow-sm">
+          <div className="text-5xl">🔔</div>
 
-            <h3 className="mt-4 text-xl font-black">
-              Nenhum pedido
-            </h3>
+          <h3 className="mt-4 text-xl font-black">
+            Nenhum pedido
+          </h3>
 
-            <p className="mt-2 text-zinc-500">
-              Quando chegar um pedido,
-              ele aparecerá aqui.
-            </p>
-          </div>
-        )}
+          <p className="mt-2 text-zinc-500">
+            Quando chegar um pedido, ele aparecerá aqui.
+          </p>
+        </div>
+      )}
 
       {/* ==================================
           RESULTADOS DOS FILTROS
       ================================== */}
 
-      {!error &&
-        orders.length >
-          0 &&
-        isFiltering && (
-          <div className="mt-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-xl font-black">
-                  Pedidos encontrados
-                </h3>
+      {!error && orders.length > 0 && isFiltering && (
+        <div className="mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xl font-black">
+                Pedidos encontrados
+              </h3>
 
-                <p className="mt-1 text-sm text-zinc-500">
-                  Resultado do cliente, período e status selecionados.
-                </p>
-              </div>
-
-              <div className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-black text-white">
-                {
-                  filteredResults.length
-                }{" "}
-                {filteredResults.length ===
-                1
-                  ? "pedido"
-                  : "pedidos"}
-              </div>
+              <p className="mt-1 text-sm text-zinc-500">
+                Resultado do cliente, período e status selecionados.
+              </p>
             </div>
 
-            {filteredResults.length ===
-              0 ? (
-              <div className="mt-4 rounded-3xl bg-white p-10 text-center shadow-sm">
-                <div className="text-5xl">
-                  🔎
-                </div>
-
-                <h3 className="mt-4 text-xl font-black">
-                  Nenhum pedido encontrado
-                </h3>
-
-                <p className="mt-2 text-zinc-500">
-                  Não encontramos pedidos com esses filtros nesta loja.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {filteredResults.map(
-                  (
-                    order
-                  ) => (
-                    <OrderCard
-                      key={
-                        order.order_id
-                      }
-                      order={
-                        order
-                      }
-                      updating={
-                        updating
-                      }
-                      onOpen={
-                        setSelectedOrderId
-                      }
-                      onAccept={
-                        acceptOrder
-                      }
-                      onCancel={
-                        cancelOrder
-                      }
-                    />
-                  )
-                )}
-              </div>
-            )}
+            <div className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-black text-white">
+              {filteredResults.length}{" "}
+              {filteredResults.length === 1 ? "pedido" : "pedidos"}
+            </div>
           </div>
-        )}
+
+          {filteredResults.length === 0 ? (
+            <div className="mt-4 rounded-3xl bg-white p-10 text-center shadow-sm">
+              <div className="text-5xl">🔎</div>
+
+              <h3 className="mt-4 text-xl font-black">
+                Nenhum pedido encontrado
+              </h3>
+
+              <p className="mt-2 text-zinc-500">
+                Não encontramos pedidos com esses filtros nesta loja.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredResults.map((order) => (
+                <OrderCard
+                  key={order.order_id}
+                  order={order}
+                  updating={updating}
+                  onOpen={setSelectedOrderId}
+                  onAccept={acceptOrder}
+                  onCancel={cancelOrder}
+                  onMessages={onOpenMessages}
+                  unreadCount={unreadCounts[order.order_id] ?? 0}
+                  
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ==================================
           5 COLUNAS
       ================================== */}
 
-      {!isFiltering &&
-        orders.length >
-          0 && (
+      {!isFiltering && orders.length > 0 && (
         <div className="mt-6 overflow-x-auto pb-5">
           <div className="grid min-w-[1250px] grid-cols-5 items-start gap-4">
-            {/* ==================================
-                NOVOS
-            ================================== */}
+
+            {/* NOVOS */}
 
             <OrderColumn
               title="Novos"
               subtitle="Aguardando aceite."
               icon="🔴"
-              orders={
-                newOrders
-              }
+              orders={newOrders}
               headerClass="border-red-200 bg-red-50 text-red-900"
               countClass="bg-red-600 text-white"
-              updating={
-                updating
-              }
-              onOpen={
-                setSelectedOrderId
-              }
-              onAccept={
-                acceptOrder
-              }
-              onCancel={
-                cancelOrder
-              }
+              updating={updating}
+              
+              onOpen={setSelectedOrderId}
+              onAccept={acceptOrder}
+              onCancel={cancelOrder}
+             onMessages={onOpenMessages}
+             unreadCounts={unreadCounts}
             />
 
-            {/* ==================================
-                EM PREPARO
-            ================================== */}
+            {/* EM PREPARO */}
 
             <OrderColumn
               title="Em preparo"
               subtitle="Aceitos e preparando."
               icon="👨‍🍳"
-              orders={
-                preparingOrders
-              }
+              orders={preparingOrders}
               headerClass="border-orange-200 bg-orange-50 text-orange-900"
               countClass="bg-orange-500 text-white"
-              updating={
-                updating
-              }
-              onOpen={
-                setSelectedOrderId
-              }
-              onAccept={
-                acceptOrder
-              }
-              onCancel={
-                cancelOrder
-              }
+              updating={updating}
+             
+              onOpen={setSelectedOrderId}
+              onAccept={acceptOrder}
+              onCancel={cancelOrder}
+              onMessages={onOpenMessages}
+              unreadCounts={unreadCounts}
             />
 
-            {/* ==================================
-                PRONTOS
-            ================================== */}
+            {/* PRONTOS */}
 
             <OrderColumn
               title="Prontos"
               subtitle="Aguardando retirada."
               icon="📦"
-              orders={
-                readyOrders
-              }
+              orders={readyOrders}
               headerClass="border-purple-200 bg-purple-50 text-purple-900"
               countClass="bg-purple-600 text-white"
-              updating={
-                updating
-              }
-              onOpen={
-                setSelectedOrderId
-              }
-              onAccept={
-                acceptOrder
-              }
-              onCancel={
-                cancelOrder
-              }
+              updating={updating}
+              
+              onOpen={setSelectedOrderId}
+              onAccept={acceptOrder}
+              onCancel={cancelOrder}
+              onMessages={onOpenMessages}
+              unreadCounts={unreadCounts}
             />
 
-            {/* ==================================
-                EM ENTREGA
-            ================================== */}
+            {/* EM ENTREGA */}
 
             <OrderColumn
               title="Em entrega"
               subtitle="Com fluxo do entregador."
               icon="🛵"
-              orders={
-                deliveryOrders
-              }
+              orders={deliveryOrders}
               headerClass="border-blue-200 bg-blue-50 text-blue-900"
               countClass="bg-blue-600 text-white"
-              updating={
-                updating
-              }
-              onOpen={
-                setSelectedOrderId
-              }
-              onAccept={
-                acceptOrder
-              }
-              onCancel={
-                cancelOrder
-              }
+              updating={updating}
+             
+              onOpen={setSelectedOrderId}
+              onAccept={acceptOrder}
+              onCancel={cancelOrder}
+              onMessages={onOpenMessages}
+              unreadCounts={unreadCounts}
             />
 
-            {/* ==================================
-                FINALIZADOS
-            ================================== */}
+            {/* FINALIZADOS */}
 
             <OrderColumn
               title="Finalizados"
               subtitle="Concluídos e cancelados."
               icon="✅"
-              orders={
-                finishedOrders
-              }
+              orders={finishedOrders}
               headerClass="border-green-200 bg-green-50 text-green-900"
               countClass="bg-green-600 text-white"
-              updating={
-                updating
-              }
-              onOpen={
-                setSelectedOrderId
-              }
-              onAccept={
-                acceptOrder
-              }
-              onCancel={
-                cancelOrder
-              }
+              updating={updating}
+             
+              onOpen={setSelectedOrderId}
+              onAccept={acceptOrder}
+              onCancel={cancelOrder}
+              onMessages={onOpenMessages}
+              unreadCounts={unreadCounts}
             />
           </div>
         </div>

@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -9,1007 +10,978 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "@/lib/supabase";
 
-type Mode =
-  | "login"
-  | "register";
+type Mode = "login" | "register";
+type RegisterStep = "email" | "code";
 
-type RegisterStep =
-  | "email"
-  | "code";
-
-  const OTP_LENGTH = 8;
+const OTP_LENGTH = 8;
 
 export default function RestaurantePage() {
-  const router =
-    useRouter();
+  const router = useRouter();
 
-  const [
-    mode,
-    setMode,
-  ] =
-    useState<Mode>(
-      "login"
-    );
+  const [mode, setMode] = useState<Mode>("login");
+  const [registerStep, setRegisterStep] =
+    useState<RegisterStep>("email");
 
-  const [
-    registerStep,
-    setRegisterStep,
-  ] =
-    useState<RegisterStep>(
-      "email"
-    );
-
-  const [
-    email,
-    setEmail,
-  ] =
-    useState("");
-
-  const [
-    password,
-    setPassword,
-  ] =
-    useState("");
-
-  const [
-    code,
-    setCode,
-  ] =
-    useState("");
-
-  const [
-    loading,
-    setLoading,
-  ] =
-    useState(false);
-
-  const [
-    error,
-    setError,
-  ] =
-    useState("");
-
-  const [
-    message,
-    setMessage,
-  ] =
-    useState("");
-
-  // ==========================================
-  // LIMPAR AVISOS
-  // ==========================================
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   function clearMessages() {
     setError("");
     setMessage("");
   }
 
-  // ==========================================
-  // TROCAR ENTRE ENTRAR / CADASTRAR
-  // ==========================================
-
-  function changeMode(
-    newMode: Mode
-  ) {
-    setMode(
-      newMode
-    );
-
-    setRegisterStep(
-      "email"
-    );
-
+  function changeMode(newMode: Mode) {
+    setMode(newMode);
+    setRegisterStep("email");
+    setPassword("");
     setCode("");
-
     clearMessages();
   }
 
-  // ==========================================
-  // VERIFICAR SE JÁ POSSUI RESTAURANTE
-  // ==========================================
-
-  async function redirectRestaurant(
-    userId: string
-  ) {
+  async function redirectRestaurant(userId: string) {
     const {
-      data:
-        restaurant,
+      data: restaurant,
+      error: restaurantError,
+    } = await supabase
+      .from("restaurants")
+      .select("id")
+      .eq("owner_id", userId)
+      .limit(1)
+      .maybeSingle();
 
-      error:
-        restaurantError,
-    } =
-      await supabase
-        .from(
-          "restaurants"
-        )
-        .select(`
-          id
-        `)
-        .eq(
-          "owner_id",
-          userId
-        )
-        .limit(1)
-        .maybeSingle();
-
-    if (
-      restaurantError
-    ) {
+    if (restaurantError) {
       console.error(
         "Erro ao verificar restaurante:",
         restaurantError
       );
 
-      setError(
-        "Não foi possível verificar sua loja."
-      );
-
+      setError("Não foi possível verificar sua loja.");
       return;
     }
 
-    // ========================================
-    // JÁ POSSUI UMA LOJA
-    // ========================================
-
-    if (
-      restaurant
-    ) {
-      router.replace(
-        "/restaurante-painel"
-      );
-
+    if (restaurant) {
+      router.replace("/restaurante-painel");
       router.refresh();
-
       return;
     }
 
-    // ========================================
-    // AINDA PRECISA CADASTRAR A LOJA
-    // ========================================
-
-    router.replace(
-  "/restaurante/inicio"
-);
-
-router.refresh();
+    router.replace("/restaurante/inicio");
+    router.refresh();
   }
 
-  // ==========================================
-  // LOGIN COM E-MAIL E SENHA
-  // ==========================================
-
   async function handleLogin(
-    event:
-      FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
-    if (
-      loading
-    ) {
-      return;
-    }
+    if (loading) return;
 
     clearMessages();
 
-    const cleanEmail =
-      email
-        .trim()
-        .toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
-    if (
-      !cleanEmail
-    ) {
-      setError(
-        "Digite seu e-mail."
-      );
-
+    if (!cleanEmail) {
+      setError("Digite seu e-mail.");
       return;
     }
 
-    if (
-      !password
-    ) {
-      setError(
-        "Digite sua senha."
-      );
-
+    if (!password) {
+      setError("Digite sua senha.");
       return;
     }
 
-    setLoading(
-      true
-    );
+    setLoading(true);
 
-    const {
-      data,
-      error:
-        loginError,
-    } =
-      await supabase.auth
-        .signInWithPassword({
-          email:
-            cleanEmail,
+    try {
+      const {
+        data,
+        error: loginError,
+      } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
 
-          password,
-        });
+      if (loginError || !data.user) {
+        console.error("Erro no login:", loginError);
 
-    if (
-      loginError ||
-      !data.user
-    ) {
-      console.error(
-        "Erro no login:",
-        loginError
-      );
+        setPassword("");
+        setError(
+          "E-mail ou senha incorretos. Tente novamente."
+        );
 
+        return;
+      }
+
+      await redirectRestaurant(data.user.id);
+    } catch (err) {
+      console.error("Erro inesperado no login:", err);
+      setPassword("");
       setError(
-        "E-mail ou senha incorretos."
+        "Não foi possível entrar. Verifique sua conexão e tente novamente."
       );
-
-      setLoading(
-        false
-      );
-
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    await redirectRestaurant(
-      data.user.id
-    );
-
-    setLoading(
-      false
-    );
   }
 
-  // ==========================================
-  // ENVIAR CÓDIGO PARA O E-MAIL
-  // ==========================================
-
   async function sendEmailCode(
-    event?:
-      FormEvent<HTMLFormElement>
+    event?: FormEvent<HTMLFormElement>
   ) {
-    if (
-      event
-    ) {
-      event.preventDefault();
-    }
+    event?.preventDefault();
 
-    if (
-      loading
-    ) {
-      return;
-    }
+    if (loading) return;
 
     clearMessages();
 
-    const cleanEmail =
-      email
-        .trim()
-        .toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
-    if (
-      !cleanEmail
-    ) {
-      setError(
-        "Digite seu e-mail."
-      );
-
+    if (!cleanEmail) {
+      setError("Digite seu e-mail.");
       return;
     }
 
-    setLoading(
-      true
-    );
+    setLoading(true);
 
-    const {
-      error:
-        otpError,
-    } =
-      await supabase.auth
-        .signInWithOtp({
-          email:
-            cleanEmail,
-
+    try {
+      const { error: otpError } =
+        await supabase.auth.signInWithOtp({
+          email: cleanEmail,
           options: {
-            shouldCreateUser:
-              true,
+            shouldCreateUser: true,
           },
         });
 
-    if (
-      otpError
-    ) {
-      console.error(
-        "Erro ao enviar código:",
-        otpError
-      );
-
-      const lowerMessage =
-        otpError.message
-          .toLowerCase();
-
-      if (
-        lowerMessage.includes(
-          "rate"
-        ) ||
-        lowerMessage.includes(
-          "seconds"
-        )
-      ) {
-        setError(
-          "Aguarde um pouco antes de pedir outro código."
+      if (otpError) {
+        console.error(
+          "Erro ao enviar código:",
+          otpError
         );
-      } else {
-        setError(
-          "Não foi possível enviar o código para este e-mail."
-        );
+
+        const lowerMessage =
+          otpError.message.toLowerCase();
+
+        if (
+          lowerMessage.includes("rate") ||
+          lowerMessage.includes("seconds")
+        ) {
+          setError(
+            "Aguarde um pouco antes de pedir outro código."
+          );
+        } else {
+          setError(
+            "Não foi possível enviar o código para este e-mail."
+          );
+        }
+
+        return;
       }
 
-      setLoading(
-        false
+      setEmail(cleanEmail);
+      setCode("");
+      setRegisterStep("code");
+
+      setMessage(
+        "Código enviado! Confira sua caixa de entrada."
       );
-
-      return;
+    } catch (err) {
+      console.error("Erro ao enviar código:", err);
+      setError(
+        "Não foi possível enviar o código. Tente novamente."
+      );
+    } finally {
+      setLoading(false);
     }
-
-    setEmail(
-      cleanEmail
-    );
-
-    setCode("");
-
-    setRegisterStep(
-      "code"
-    );
-
-    setMessage(
-      "Código enviado! Confira sua caixa de entrada."
-    );
-
-    setLoading(
-      false
-    );
   }
 
-  // ==========================================
-  // CONFIRMAR CÓDIGO DO E-MAIL
-  // ==========================================
-
   async function verifyEmailCode(
-    event:
-      FormEvent<HTMLFormElement>
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
-    if (
-      loading
-    ) {
-      return;
-    }
+    if (loading) return;
 
     clearMessages();
 
-    const cleanEmail =
-      email
-        .trim()
-        .toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
-    const cleanCode =
-  code
-    .replace(
-      /\D/g,
-      ""
-    )
-    .slice(
-      0,
-      OTP_LENGTH
-    );
-    if (
-      !cleanEmail
-    ) {
-      setError(
-        "Informe seu e-mail novamente."
-      );
+    const cleanCode = code
+      .replace(/\D/g, "")
+      .slice(0, OTP_LENGTH);
 
-      setRegisterStep(
-        "email"
-      );
-
+    if (!cleanEmail) {
+      setError("Informe seu e-mail novamente.");
+      setRegisterStep("email");
       return;
     }
 
-    if (
-  cleanCode.length !==
-  OTP_LENGTH
-) {
-  setError(
-    `Digite os ${OTP_LENGTH} números enviados para seu e-mail.`
-  );
+    if (cleanCode.length !== OTP_LENGTH) {
+      setError(
+        `Digite os ${OTP_LENGTH} números enviados para seu e-mail.`
+      );
+      return;
+    }
 
-  return;
-}
+    setLoading(true);
 
-    setLoading(
-      true
-    );
+    try {
+      const {
+        data,
+        error: verifyError,
+      } = await supabase.auth.verifyOtp({
+        email: cleanEmail,
+        token: cleanCode,
+        type: "email",
+      });
 
-    const {
-      data,
-      error:
-        verifyError,
-    } =
-      await supabase.auth
-        .verifyOtp({
-          email:
-            cleanEmail,
+      if (verifyError || !data.user) {
+        console.error(
+          "Erro ao confirmar código:",
+          verifyError
+        );
 
-          token:
-            cleanCode,
+        setCode("");
+        setError(
+          "Código incorreto ou expirado. Confira o e-mail e tente novamente."
+        );
 
-          type:
-            "email",
-        });
+        return;
+      }
 
-    if (
-      verifyError ||
-      !data.user
-    ) {
+      router.replace("/restaurante/inicio");
+      router.refresh();
+    } catch (err) {
       console.error(
         "Erro ao confirmar código:",
-        verifyError
+        err
       );
 
+      setCode("");
       setError(
-        "Código incorreto ou expirado. Confira o e-mail e tente novamente."
+        "Não foi possível confirmar o código. Tente novamente."
       );
-
-      setLoading(
-        false
-      );
-
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    // ========================================
-    // E-MAIL CONFIRMADO
-    // USUÁRIO FICA AUTENTICADO
-    // ========================================
-
-    router.replace(
-  "/restaurante/inicio"
-);
-
-router.refresh();
   }
 
-  // ==========================================
-  // ALTERAR E-MAIL
-  // ==========================================
-
   function changeEmail() {
-    setRegisterStep(
-      "email"
-    );
-
+    setRegisterStep("email");
     setCode("");
-
     clearMessages();
   }
 
+  const isLogin = mode === "login";
+  const isEmailStep = registerStep === "email";
+
   return (
-    <main className="min-h-screen bg-[#f6f6f6] text-zinc-900">
-      {/* ======================================
-          CABEÇALHO
-      ====================================== */}
+    <main className="relative min-h-screen overflow-hidden bg-[#f7f8fc] text-slate-900">
+      {/* Fundo decorativo */}
 
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-wide text-red-600">
-              Entrega Paudalho
-            </p>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-40 -top-40 h-[500px] w-[500px] rounded-full bg-red-100/60 blur-3xl"
+      />
 
-            <h1 className="mt-1 text-lg font-black">
-              Portal do Restaurante
-            </h1>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -bottom-48 -left-40 h-[500px] w-[500px] rounded-full bg-orange-100/50 blur-3xl"
+      />
+
+      {/* Cabeçalho */}
+
+      <header className="relative z-10 border-b border-slate-200/80 bg-white/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-600 text-white shadow-lg shadow-red-200">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                className="h-6 w-6"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 10h18l-2 10H5L3 10Z"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M7 10 9 4h6l2 6M9 14v3m6-3v3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            <div>
+              <p className="text-base font-black tracking-tight">
+                Entrega{" "}
+                <span className="text-red-600">
+                  Paudalho
+                </span>
+              </p>
+
+              <p className="text-xs font-medium text-slate-500">
+                Portal do Restaurante
+              </p>
+            </div>
           </div>
-          
+
+          <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 sm:flex">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="text-xs font-semibold text-slate-600">
+              Área de parceiros
+            </span>
+          </div>
         </div>
       </header>
 
-      {/* ======================================
-          CONTEÚDO
-      ====================================== */}
+      {/* Conteúdo principal */}
 
-      <div className="mx-auto grid min-h-[calc(100vh-73px)] max-w-7xl items-center gap-12 px-5 py-10 lg:grid-cols-[1fr_470px]">
-        {/* ==================================
-            LADO ESQUERDO
-        ================================== */}
+      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-77px)] max-w-7xl items-center gap-10 px-5 py-10 sm:px-8 lg:grid-cols-[1fr_460px] lg:gap-16 lg:py-14">
+        {/* Apresentação */}
 
-        <section className="hidden lg:block">
-          <div className="inline-flex items-center rounded-full bg-red-100 px-4 py-2 text-sm font-black text-red-700">
-            🏪 Área exclusiva para parceiros
+        <section className="mx-auto w-full max-w-2xl lg:mx-0">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-red-100 bg-white px-4 py-2 shadow-sm">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-red-50 text-red-600">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path
+                  d="M3 21h18M5 21V7l7-4 7 4v14M9 11h.01M15 11h.01M9 15h.01M15 15h.01M10 21v-3h4v3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+
+            <span className="text-xs font-bold text-red-700">
+              Feito para quem empreende
+            </span>
           </div>
 
-          <h2 className="mt-6 max-w-2xl text-5xl font-black leading-[1.05]">
-            Sua loja no
-            Entrega Paudalho.
-          </h2>
+          <h1 className="max-w-xl text-4xl font-black leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
+            Seu restaurante merece{" "}
+            <span className="text-red-600">
+              crescer.
+            </span>
+          </h1>
 
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-zinc-500">
-            Receba pedidos, organize o
-            preparo, atualize seu cardápio
-            e acompanhe toda a operação
-            do restaurante em um só lugar.
+          <p className="mt-5 max-w-xl text-base leading-7 text-slate-600 sm:text-lg sm:leading-8">
+            Gerencie sua loja no Entrega Paudalho
+            com praticidade. Organize pedidos,
+            atualize seu cardápio e acompanhe sua
+            operação em um só lugar.
           </p>
 
-          <div className="mt-10 grid max-w-2xl grid-cols-2 gap-4">
-            <div className="rounded-3xl bg-white p-5 shadow-sm">
-              <div className="text-3xl">
-                🧾
+          {/* Recursos */}
+
+          <div className="mt-9 grid gap-3 sm:grid-cols-2">
+            <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-600">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M7 3h8l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M15 3v5h4M9 13h6m-6 4h6"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </div>
 
-              <h3 className="mt-3 font-black">
-                Pedidos
+              <h3 className="mt-4 font-bold">
+                Gestão de pedidos
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                Veja novos pedidos e acompanhe
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Acompanhe os pedidos e organize
                 cada etapa do preparo.
               </p>
             </div>
 
-            <div className="rounded-3xl bg-white p-5 shadow-sm">
-              <div className="text-3xl">
-                🍔
+            <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 10h16M5 10a7 7 0 0 1 14 0M6 10v9h12v-9M9 14h6m-6 3h6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </div>
 
-              <h3 className="mt-3 font-black">
-                Cardápio
+              <h3 className="mt-4 font-bold">
+                Seu cardápio
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                Cadastre produtos, adicionais,
-                preços e disponibilidade.
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Organize produtos, preços e
+                disponibilidade dos itens.
               </p>
             </div>
 
-            <div className="rounded-3xl bg-white p-5 shadow-sm">
-              <div className="text-3xl">
-                💰
+            <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 3v18h18M7 14l4-4 4 3 5-7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </div>
 
-              <h3 className="mt-3 font-black">
-                Financeiro
+              <h3 className="mt-4 font-bold">
+                Acompanhe sua loja
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                Acompanhe pedidos e
-                movimentações da sua loja.
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Tenha acesso às informações
+                disponíveis da sua operação.
               </p>
             </div>
 
-            <div className="rounded-3xl bg-white p-5 shadow-sm">
-              <div className="text-3xl">
-                🕐
+            <div className="group rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-md">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-6 w-6"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="9" />
+                  <path
+                    d="M12 7v5l3 2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </div>
 
-              <h3 className="mt-3 font-black">
-                Operação
+              <h3 className="mt-4 font-bold">
+                Mais praticidade
               </h3>
 
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                Controle horários,
-                entrega e retirada.
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Acesse as ferramentas da sua loja
+                em um único ambiente.
               </p>
             </div>
           </div>
+
+          <div className="mt-7 flex items-center gap-3 text-sm text-slate-500">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-5 w-5"
+                aria-hidden="true"
+              >
+                <path
+                  d="m5 12 4 4L19 6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            <p>
+              Um ambiente pensado para facilitar
+              o dia a dia do seu restaurante.
+            </p>
+          </div>
         </section>
 
-        {/* ==================================
-            CARD DIREITO
-        ================================== */}
+        {/* Card de acesso */}
 
-        <section className="w-full">
-          <div className="rounded-[32px] bg-white p-6 shadow-sm sm:p-8">
-            {/* ==================================
-                CABEÇALHO DO CARD
-            ================================== */}
+        <section className="mx-auto w-full max-w-[460px]">
+          <div className="overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-xl shadow-slate-200/70">
+            <div className="h-1.5 bg-gradient-to-r from-red-700 via-red-600 to-orange-400" />
 
-            <div className="text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-600 text-3xl">
-                🏪
+            <div className="p-6 sm:p-9">
+              {/* Cabeçalho do formulário */}
+
+              <div className="text-center">
+                <div className="mx-auto flex h-[68px] w-[68px] items-center justify-center rounded-[22px] bg-red-600 text-white shadow-lg shadow-red-200">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    className="h-8 w-8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 10h18l-2 10H5L3 10Z"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M7 10 9 4h6l2 6M9 14v3m6-3v3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+
+                <p className="mt-5 text-[11px] font-extrabold uppercase tracking-[0.2em] text-red-600">
+                  Portal do Restaurante
+                </p>
+
+                <h2 className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
+                  {isLogin
+                    ? "Bem-vindo de volta!"
+                    : isEmailStep
+                      ? "Cadastre sua loja"
+                      : "Confirme seu e-mail"}
+                </h2>
+
+                <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-slate-500">
+                  {isLogin
+                    ? "Entre na sua conta para acessar o painel do restaurante."
+                    : isEmailStep
+                      ? "Comece informando o e-mail que você deseja usar."
+                      : "Digite o código de confirmação que enviamos para seu e-mail."}
+                </p>
               </div>
 
-              <p className="mt-5 text-xs font-black uppercase tracking-wide text-red-600">
-                Portal do Restaurante
-              </p>
+              {/* Abas */}
 
-              <h2 className="mt-2 text-3xl font-black">
-                {mode ===
-                "login"
-                  ? "Acesse sua loja"
-                  : registerStep ===
-                      "email"
-                    ? "Comece seu cadastro"
-                    : "Confirme seu e-mail"}
-              </h2>
-
-              <p className="mt-2 text-sm leading-6 text-zinc-500">
-                {mode ===
-                "login"
-                  ? "Entre para acessar seu painel."
-                  : registerStep ===
-                      "email"
-                    ? "Informe seu e-mail para começar o cadastro da loja."
-                    : "Digite o código de 6 números que enviamos para seu e-mail."}
-              </p>
-            </div>
-
-            {/* ==================================
-                ENTRAR / CADASTRAR
-            ================================== */}
-
-            <div className="mt-7 grid grid-cols-2 rounded-2xl bg-zinc-100 p-1">
-              <button
-                type="button"
-                onClick={() =>
-                  changeMode(
-                    "login"
-                  )
-                }
-                className={`rounded-xl px-4 py-3 text-sm font-black transition ${
-                  mode ===
-                  "login"
-                    ? "bg-white text-red-600 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-900"
-                }`}
-              >
-                Entrar
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  changeMode(
-                    "register"
-                  )
-                }
-                className={`rounded-xl px-4 py-3 text-sm font-black transition ${
-                  mode ===
-                  "register"
-                    ? "bg-white text-red-600 shadow-sm"
-                    : "text-zinc-500 hover:text-zinc-900"
-                }`}
-              >
-                Cadastrar loja
-              </button>
-            </div>
-
-            {/* ==================================
-                LOGIN
-            ================================== */}
-
-            {mode ===
-              "login" && (
-              <form
-                onSubmit={
-                  handleLogin
-                }
-                className="mt-6 space-y-4"
-              >
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    E-mail
-                  </label>
-
-                  <input
-                    type="email"
-                    required
-                    value={
-                      email
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setEmail(
-                        event
-                          .target
-                          .value
-                      )
-                    }
-                    autoComplete="email"
-                    placeholder="seuemail@gmail.com"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-black">
-                    Senha
-                  </label>
-
-                  <input
-                    type="password"
-                    required
-                    value={
-                      password
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPassword(
-                        event
-                          .target
-                          .value
-                      )
-                    }
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                  />
-                </div>
-
-                {error && (
-                  <div className="rounded-xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-700">
-                    ⚠️{" "}
-                    {
-                      error
-                    }
-                  </div>
-                )}
+              <div className="mt-7 grid grid-cols-2 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => changeMode("login")}
+                  aria-pressed={isLogin}
+                  className={`rounded-lg px-3 py-3 text-sm font-bold transition ${
+                    isLogin
+                      ? "bg-white text-red-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Entrar
+                </button>
 
                 <button
-                  type="submit"
-                  disabled={
-                    loading
-                  }
-                  className="w-full rounded-xl bg-red-600 px-5 py-4 font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                  type="button"
+                  onClick={() => changeMode("register")}
+                  aria-pressed={!isLogin}
+                  className={`rounded-lg px-3 py-3 text-sm font-bold transition ${
+                    !isLogin
+                      ? "bg-white text-red-600 shadow-sm"
+                      : "text-slate-500 hover:text-slate-900"
+                  }`}
                 >
-                  {loading
-                    ? "Entrando..."
-                    : "Entrar no painel"}
+                  Cadastrar loja
                 </button>
-              </form>
-            )}
+              </div>
 
-            {/* ==================================
-                CADASTRO
-                ETAPA 1 - EMAIL
-            ================================== */}
+              {/* Formulário de login */}
 
-            {mode ===
-              "register" &&
-              registerStep ===
-                "email" && (
+              {isLogin && (
                 <form
-                  onSubmit={
-                    sendEmailCode
-                  }
+                  onSubmit={handleLogin}
                   className="mt-6 space-y-5"
                 >
                   <div>
-                    <label className="mb-2 block text-sm font-black">
+                    <label
+                      htmlFor="login-email"
+                      className="mb-2 block text-sm font-bold text-slate-700"
+                    >
                       E-mail
                     </label>
 
                     <input
+                      id="login-email"
                       type="email"
                       required
-                      value={
-                        email
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setEmail(
-                          event
-                            .target
-                            .value
-                        )
+                      value={email}
+                      onChange={(event) =>
+                        setEmail(event.target.value)
                       }
                       autoComplete="email"
                       placeholder="seuemail@gmail.com"
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-4 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-red-500 focus:ring-4 focus:ring-red-50"
                     />
+                  </div>
 
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
-                      Vamos enviar um código
-                      de confirmação para este
-                      endereço.
-                    </p>
+                  <div>
+                    <label
+                      htmlFor="login-password"
+                      className="mb-2 block text-sm font-bold text-slate-700"
+                    >
+                      Senha
+                    </label>
+
+                    <input
+                      id="login-password"
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(event) =>
+                        setPassword(event.target.value)
+                      }
+                      autoComplete="current-password"
+                      placeholder="Digite sua senha"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-red-500 focus:ring-4 focus:ring-red-50"
+                    />
                   </div>
 
                   {error && (
-                    <div className="rounded-xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-700">
-                      ⚠️{" "}
-                      {
-                        error
-                      }
+                    <div
+                      role="alert"
+                      className="flex gap-3 rounded-xl border border-red-100 bg-red-50 p-3.5 text-sm leading-6 text-red-700"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className="mt-0.5 h-5 w-5 shrink-0"
+                        aria-hidden="true"
+                      >
+                        <circle cx="12" cy="12" r="9" />
+                        <path
+                          d="M12 8v5m0 3h.01"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+
+                      <p>{error}</p>
                     </div>
                   )}
 
                   <button
                     type="submit"
-                    disabled={
-                      loading
-                    }
-                    className="w-full rounded-xl bg-red-600 px-5 py-4 font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                    disabled={loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-4 text-sm font-extrabold text-white shadow-md shadow-red-100 transition hover:bg-red-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                   >
-                    {loading
-                      ? "Enviando código..."
-                      : "Confirmar e-mail"}
+                    {loading ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Entrando...
+                      </>
+                    ) : (
+                      <>
+                        Entrar no painel
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-4 w-4"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M5 12h14m-6-6 6 6-6 6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {/* Cadastro: e-mail */}
+
+              {!isLogin && isEmailStep && (
+                <form
+                  onSubmit={sendEmailCode}
+                  className="mt-6 space-y-5"
+                >
+                  <div>
+                    <label
+                      htmlFor="register-email"
+                      className="mb-2 block text-sm font-bold text-slate-700"
+                    >
+                      E-mail
+                    </label>
+
+                    <input
+                      id="register-email"
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(event) =>
+                        setEmail(event.target.value)
+                      }
+                      autoComplete="email"
+                      placeholder="seuemail@gmail.com"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-red-500 focus:ring-4 focus:ring-red-50"
+                    />
+
+                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                      Você receberá um código para
+                      confirmar que o e-mail pertence
+                      a você.
+                    </p>
+                  </div>
+
+                  {error && (
+                    <div
+                      role="alert"
+                      className="rounded-xl border border-red-100 bg-red-50 p-3.5 text-sm leading-6 text-red-700"
+                    >
+                      {error}
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-4 text-sm font-extrabold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {loading ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Enviando código...
+                      </>
+                    ) : (
+                      "Continuar com e-mail"
+                    )}
                   </button>
 
-                  <div className="rounded-2xl border border-zinc-100 bg-zinc-50 p-4">
-                    <p className="font-black">
-                      🔒 Cadastro seguro
-                    </p>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-600 shadow-sm ring-1 ring-slate-200">
+                        <svg
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          className="h-5 w-5"
+                          aria-hidden="true"
+                        >
+                          <rect
+                            x="5"
+                            y="10"
+                            width="14"
+                            height="11"
+                            rx="2"
+                          />
+                          <path
+                            d="M8 10V7a4 4 0 0 1 8 0v3"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </div>
 
-                    <p className="mt-2 text-sm leading-6 text-zinc-500">
-                      Você só continuará para
-                      os dados do restaurante
-                      depois de confirmar que
-                      este e-mail pertence a
-                      você.
-                    </p>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">
+                          Cadastro protegido
+                        </p>
+
+                        <p className="mt-1 text-xs leading-5 text-slate-500">
+                          A confirmação do e-mail é a
+                          primeira etapa para iniciar
+                          seu cadastro.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </form>
               )}
 
-            {/* ==================================
-                CADASTRO
-                ETAPA 2 - CÓDIGO
-            ================================== */}
+              {/* Cadastro: código */}
 
-            {mode ===
-              "register" &&
-              registerStep ===
-                "code" && (
+              {!isLogin && !isEmailStep && (
                 <form
-                  onSubmit={
-                    verifyEmailCode
-                  }
+                  onSubmit={verifyEmailCode}
                   className="mt-6"
                 >
-                  {/* EMAIL */}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-center">
+                    <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-white text-red-600 shadow-sm ring-1 ring-slate-200">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        className="h-5 w-5"
+                        aria-hidden="true"
+                      >
+                        <rect
+                          x="3"
+                          y="5"
+                          width="18"
+                          height="14"
+                          rx="2"
+                        />
+                        <path
+                          d="m4 7 8 6 8-6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
 
-                  <div className="rounded-2xl bg-zinc-50 p-4 text-center">
-                    <p className="text-xs font-bold text-zinc-400">
+                    <p className="mt-3 text-xs font-medium text-slate-500">
                       Código enviado para
                     </p>
 
-                    <p className="mt-1 font-black">
-                      {
-                        email
-                      }
+                    <p className="mt-1 break-all text-sm font-bold text-slate-800">
+                      {email}
                     </p>
 
                     <button
                       type="button"
-                      onClick={
-                        changeEmail
-                      }
-                      className="mt-2 text-xs font-black text-red-600 hover:underline"
+                      onClick={changeEmail}
+                      className="mt-2 text-xs font-bold text-red-600 hover:text-red-700 hover:underline"
                     >
                       Alterar e-mail
                     </button>
                   </div>
 
-                  {/* CÓDIGO */}
-
                   <div className="mt-6">
-                    <label className="mb-3 block text-center text-sm font-black">
+                    <label
+                      htmlFor="register-code"
+                      className="mb-3 block text-center text-sm font-bold text-slate-700"
+                    >
                       Código de confirmação
                     </label>
 
                     <input
+                      id="register-code"
                       type="text"
                       inputMode="numeric"
                       autoComplete="one-time-code"
-                      value={
-                        code
-                      }
-                      onChange={(
-                        event
-                      ) =>
+                      required
+                      value={code}
+                      onChange={(event) =>
                         setCode(
-                          event
-                            .target
-                            .value
-                            .replace(
-                              /\D/g,
-                              ""
-                            )
-                            .slice(
-  0,
-  OTP_LENGTH
-)
+                          event.target.value
+                            .replace(/\D/g, "")
+                            .slice(0, OTP_LENGTH)
                         )
                       }
-                      maxLength={
-  OTP_LENGTH
-}
+                      maxLength={OTP_LENGTH}
                       placeholder="00000000"
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-4 text-center text-3xl font-black tracking-[0.35em] outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-4 text-center text-2xl font-extrabold tracking-[0.3em] outline-none transition placeholder:text-slate-300 focus:border-red-500 focus:ring-4 focus:ring-red-50 sm:text-3xl"
                     />
 
-                    <p className="mt-2 text-center text-xs text-zinc-400">
-                      Digite os 8 números
-                      recebidos no e-mail.
+                    <p className="mt-2 text-center text-xs text-slate-500">
+                      Digite os 8 números recebidos
+                      no seu e-mail.
                     </p>
                   </div>
 
-                  {/* SUCESSO */}
-
                   {message && (
-                    <div className="mt-4 rounded-xl bg-green-50 p-4 text-sm font-bold leading-6 text-green-700">
-                      ✅{" "}
-                      {
-                        message
-                      }
+                    <div
+                      role="status"
+                      className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 p-3.5 text-sm leading-6 text-emerald-700"
+                    >
+                      {message}
                     </div>
                   )}
-
-                  {/* ERRO */}
 
                   {error && (
-                    <div className="mt-4 rounded-xl bg-red-50 p-4 text-sm font-bold leading-6 text-red-700">
-                      ⚠️{" "}
-                      {
-                        error
-                      }
+                    <div
+                      role="alert"
+                      className="mt-4 rounded-xl border border-red-100 bg-red-50 p-3.5 text-sm leading-6 text-red-700"
+                    >
+                      {error}
                     </div>
                   )}
-
-                  {/* CONFIRMAR */}
 
                   <button
                     type="submit"
                     disabled={
-  loading ||
-  code.length !==
-    OTP_LENGTH
-}
-                    className="mt-5 w-full rounded-xl bg-red-600 px-5 py-4 font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+                      loading ||
+                      code.length !== OTP_LENGTH
+                    }
+                    className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-4 text-sm font-extrabold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {loading
-                      ? "Confirmando..."
-                      : "Confirmar código"}
+                    {loading ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                        Confirmando...
+                      </>
+                    ) : (
+                      "Confirmar código"
+                    )}
                   </button>
-
-                  {/* REENVIAR */}
 
                   <button
                     type="button"
-                    disabled={
-                      loading
-                    }
-                    onClick={() =>
-                      sendEmailCode()
-                    }
-                    className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-5 py-3.5 text-sm font-black transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:text-zinc-300"
+                    disabled={loading}
+                    onClick={() => sendEmailCode()}
+                    className="mt-3 w-full rounded-xl border border-slate-200 bg-white px-5 py-3.5 text-sm font-bold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Reenviar código
                   </button>
                 </form>
               )}
 
-            {/* ==================================
-                RODAPÉ
-            ================================== */}
+              {/* Rodapé do card */}
 
-            <div className="mt-6 border-t border-zinc-100 pt-5">
-              <p className="text-center text-xs leading-5 text-zinc-400">
-                🔒 Área exclusiva para
-                restaurantes parceiros do
-                Entrega Paudalho.
-              </p>
+              <div className="mt-7 border-t border-slate-100 pt-5">
+                <div className="flex items-center justify-center gap-2 text-slate-400">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    className="h-4 w-4 shrink-0"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="m9 12 2 2 4-4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+
+                  <p className="text-center text-xs leading-5">
+                    Acesso exclusivo para parceiros
+                    do Entrega Paudalho.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
+
+          <p className="mt-5 text-center text-xs leading-5 text-slate-400">
+            Entrega Paudalho · Portal do Restaurante
+          </p>
         </section>
       </div>
     </main>
