@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -113,6 +114,479 @@ function shortOrderId(
     )
     .toUpperCase();
 }
+
+
+type DriverCoordinate = {
+  lat: number;
+  lon: number;
+  accuracy?: number;
+};
+
+type DriverLeafletMap = {
+  setView(coords: [number, number], zoom: number, options?: { animate?: boolean }): DriverLeafletMap;
+  getZoom(): number;
+  invalidateSize(): void;
+  remove(): void;
+  fitBounds(bounds: unknown, options?: { padding?: [number, number]; maxZoom?: number }): DriverLeafletMap;
+};
+
+type DriverLeafletMarker = {
+  addTo(map: DriverLeafletMap): DriverLeafletMarker;
+  setLatLng(coords: [number, number]): DriverLeafletMarker;
+  bindPopup(content: string): DriverLeafletMarker;
+};
+
+type DriverLeafletLayer = {
+  addTo(map: DriverLeafletMap): DriverLeafletLayer;
+  remove(): void;
+};
+
+type DriverLeafletApi = {
+  map(container: HTMLElement, options?: Record<string, unknown>): DriverLeafletMap;
+  tileLayer(url: string, options?: Record<string, unknown>): DriverLeafletLayer;
+  marker(coords: [number, number], options?: { icon?: unknown }): DriverLeafletMarker;
+  divIcon(options: Record<string, unknown>): unknown;
+  polyline(coords: [number, number][], options?: Record<string, unknown>): DriverLeafletLayer;
+  latLngBounds(coords: [number, number][]): unknown;
+};
+
+declare global {
+  interface Window {
+    L?: DriverLeafletApi;
+  }
+}
+
+function distanceBetweenMeters(a: DriverCoordinate, b: DriverCoordinate) {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadius = 6371000;
+  const latitudeDelta = toRadians(b.lat - a.lat);
+  const longitudeDelta = toRadians(b.lon - a.lon);
+  const firstLatitude = toRadians(a.lat);
+  const secondLatitude = toRadians(b.lat);
+  const value =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(firstLatitude) *
+      Math.cos(secondLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2;
+  return earthRadius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function DriverLiveMap({
+  online,
+  currentOrder,
+  visible,
+}: {
+  online: boolean;
+  currentOrder: CurrentOrder | null;
+  visible: boolean;
+}) {
+  const mapElementRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<DriverLeafletMap | null>(null);
+  const courierMarkerRef = useRef<DriverLeafletMarker | null>(null);
+  const destinationMarkerRef = useRef<DriverLeafletMarker | null>(null);
+  const routeLayerRef = useRef<DriverLeafletLayer | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  const lastRouteOriginRef = useRef<DriverCoordinate | null>(null);
+  const routeRequestInFlightRef = useRef(false);
+
+  const [leafletReady, setLeafletReady] = useState(false);
+  const [mapInitialized, setMapInitialized] = useState(false);
+  const [position, setPosition] = useState<DriverCoordinate | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<"idle" | "loading" | "tracking" | "error" | "unsupported">("idle");
+  const [locationError, setLocationError] = useState("");
+  const [mapError, setMapError] = useState("");
+  const [destination, setDestination] = useState<DriverCoordinate | null>(null);
+  const [destinationLabel, setDestinationLabel] = useState("");
+  const [routeInfo, setRouteInfo] = useState("");
+
+  const destinationIsRestaurant = currentOrder?.order_status === "driver_assigned";
+  const destinationAddress = currentOrder
+    ? destinationIsRestaurant
+      ? [
+          currentOrder.restaurant_street,
+          currentOrder.restaurant_number,
+          currentOrder.restaurant_neighborhood,
+          "Paudalho",
+          "Pernambuco",
+          "Brasil",
+        ].filter(Boolean).join(", ")
+      : [
+          currentOrder.customer_street,
+          currentOrder.customer_number,
+          currentOrder.customer_neighborhood,
+          currentOrder.customer_city,
+          currentOrder.customer_state,
+          "Brasil",
+        ].filter(Boolean).join(", ")
+    : "";
+
+  const destinationDescription = currentOrder
+    ? destinationIsRestaurant
+      ? "Retirada no restaurante"
+      : "Entrega para o cliente"
+    : "Sem entrega ativa";
+
+  // Carrega Leaflet apenas no navegador, sem exigir instalação de pacote no projeto.
+  useEffect(() => {
+    let cancelled = false;
+    const cssId = "delivery-paudalho-leaflet-css";
+    if (!document.getElementById(cssId)) {
+      const link = document.createElement("link");
+      link.id = cssId;
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    const onLoaded = () => {
+      if (!cancelled) setLeafletReady(true);
+    };
+    const onFailed = () => {
+      if (!cancelled) setMapError("Não foi possível carregar o mapa. Confira sua conexão com a internet.");
+    };
+
+    if (window.L) {
+      onLoaded();
+      return () => { cancelled = true; };
+    }
+
+    let script = document.querySelector<HTMLScriptElement>('script[data-delivery-paudalho-leaflet="true"]');
+    if (!script) {
+      script = document.createElement("script");
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.async = true;
+      script.dataset.deliveryPaudalhoLeaflet = "true";
+      script.addEventListener("load", onLoaded, { once: true });
+      script.addEventListener("error", onFailed, { once: true });
+      document.body.appendChild(script);
+    } else {
+      script.addEventListener("load", onLoaded);
+      script.addEventListener("error", onFailed);
+      if (window.L) onLoaded();
+    }
+
+    return () => {
+      cancelled = true;
+      script?.removeEventListener("load", onLoaded);
+      script?.removeEventListener("error", onFailed);
+    };
+  }, []);
+
+  // Abre o mapa centrado em Paudalho, sem fingir que esse ponto é a localização do entregador.
+  useEffect(() => {
+    if (!leafletReady || !mapElementRef.current || !window.L || mapRef.current) return;
+
+    const map = window.L.map(mapElementRef.current, {
+      zoomControl: true,
+      scrollWheelZoom: true,
+    }).setView([-7.895, -35.172], 13);
+
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+    }).addTo(map);
+
+    mapRef.current = map;
+    setMapInitialized(true);
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      courierMarkerRef.current = null;
+      destinationMarkerRef.current = null;
+      routeLayerRef.current = null;
+      setMapInitialized(false);
+    };
+  }, [leafletReady]);
+
+  useEffect(() => {
+    if (!mapInitialized || !visible) return;
+    const timeoutId = window.setTimeout(() => mapRef.current?.invalidateSize(), 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [mapInitialized, visible]);
+
+  function stopTracking() {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+    }
+    watchIdRef.current = null;
+    setGpsStatus("idle");
+    setLocationError("");
+    setPosition(null);
+    lastRouteOriginRef.current = null;
+    if (courierMarkerRef.current) {
+      const marker = courierMarkerRef.current as DriverLeafletMarker & { remove?: () => void };
+      marker.remove?.();
+      courierMarkerRef.current = null;
+    }
+    routeLayerRef.current?.remove();
+    routeLayerRef.current = null;
+    setRouteInfo("");
+  }
+
+  function startTracking() {
+    if (!navigator.geolocation) {
+      setGpsStatus("unsupported");
+      setLocationError("Este navegador não oferece suporte à localização.");
+      return;
+    }
+    if (watchIdRef.current !== null) return;
+
+    setGpsStatus("loading");
+    setLocationError("");
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (result) => {
+        setPosition({
+          lat: result.coords.latitude,
+          lon: result.coords.longitude,
+          accuracy: result.coords.accuracy,
+        });
+        setGpsStatus("tracking");
+        setLocationError("");
+      },
+      (geoError) => {
+        watchIdRef.current = null;
+        setGpsStatus(geoError.code === 1 ? "error" : "error");
+        if (geoError.code === 1) {
+          setLocationError("Permita o acesso à localização nas configurações do navegador para ver sua posição no mapa.");
+        } else if (geoError.code === 2) {
+          setLocationError("Não foi possível obter o GPS. Confira se a localização está ativada no aparelho.");
+        } else {
+          setLocationError("O GPS demorou para responder. Tente ativar a localização novamente.");
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 4000, timeout: 20000 },
+    );
+  }
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, []);
+
+  // Ao aceitar uma entrega, tenta localizar o destino a partir do endereço real do pedido.
+  useEffect(() => {
+    let cancelled = false;
+    setDestination(null);
+    setDestinationLabel("");
+    setRouteInfo("");
+    lastRouteOriginRef.current = null;
+    routeLayerRef.current?.remove();
+    routeLayerRef.current = null;
+    if (destinationMarkerRef.current) {
+      const marker = destinationMarkerRef.current as DriverLeafletMarker & { remove?: () => void };
+      marker.remove?.();
+      destinationMarkerRef.current = null;
+    }
+
+    if (!currentOrder || !destinationAddress.trim()) return () => { cancelled = true; };
+
+    setDestinationLabel(destinationDescription);
+    setRouteInfo("Localizando endereço do destino...");
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=pt-BR&q=${encodeURIComponent(destinationAddress)}`;
+
+    fetch(url, { headers: { "Accept-Language": "pt-BR" } })
+      .then((response) => {
+        if (!response.ok) throw new Error("geocode_unavailable");
+        return response.json() as Promise<Array<{ lat: string; lon: string }>>;
+      })
+      .then((results) => {
+        if (cancelled) return;
+        const first = results?.[0];
+        if (!first) {
+          setRouteInfo("Não foi possível encontrar o endereço no mapa. Você ainda pode abrir a navegação externa.");
+          return;
+        }
+        const lat = Number(first.lat);
+        const lon = Number(first.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          setRouteInfo("Não foi possível interpretar as coordenadas do endereço.");
+          return;
+        }
+        setDestination({ lat, lon });
+        setRouteInfo("Destino localizado. Aguardando o GPS para calcular a rota.");
+      })
+      .catch(() => {
+        if (!cancelled) setRouteInfo("Não foi possível localizar o endereço automaticamente. Use Abrir navegação para consultar a rota.");
+      });
+
+    return () => { cancelled = true; };
+  }, [currentOrder?.order_id, currentOrder?.order_status, destinationAddress, destinationDescription]);
+
+  // Atualiza o marcador do entregador conforme o GPS muda.
+  useEffect(() => {
+    const map = mapRef.current;
+    const leaflet = window.L;
+    if (!mapInitialized || !map || !leaflet) return;
+
+    if (!position) {
+      if (courierMarkerRef.current) {
+        const marker = courierMarkerRef.current as DriverLeafletMarker & { remove?: () => void };
+        marker.remove?.();
+        courierMarkerRef.current = null;
+      }
+      return;
+    }
+
+    const coordinates: [number, number] = [position.lat, position.lon];
+    if (!courierMarkerRef.current) {
+      const icon = leaflet.divIcon({
+        className: "delivery-paudalho-current-location",
+        html: '<div style="height:22px;width:22px;border-radius:9999px;background:#2563eb;border:4px solid white;box-shadow:0 1px 8px #0006;position:relative"><span style="position:absolute;inset:-8px;border-radius:9999px;background:#3b82f633;border:2px solid #3b82f655"></span></div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+      courierMarkerRef.current = leaflet.marker(coordinates, { icon }).addTo(map).bindPopup("Sua localização atual");
+    } else {
+      courierMarkerRef.current.setLatLng(coordinates);
+    }
+
+    if (!destination) map.setView(coordinates, Math.max(map.getZoom(), 16), { animate: true });
+  }, [position, destination, mapInitialized]);
+
+  // Marca o restaurante ou cliente no mapa.
+  useEffect(() => {
+    const map = mapRef.current;
+    const leaflet = window.L;
+    if (!mapInitialized || !map || !leaflet || !destination) return;
+    const coordinates: [number, number] = [destination.lat, destination.lon];
+    if (!destinationMarkerRef.current) {
+      const icon = leaflet.divIcon({
+        className: "delivery-paudalho-destination",
+        html: '<div style="height:24px;width:24px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#dc2626;border:3px solid white;box-shadow:0 1px 7px #0005"><span style="display:block;height:6px;width:6px;border-radius:99px;background:white;margin:6px"></span></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 24],
+      });
+      destinationMarkerRef.current = leaflet.marker(coordinates, { icon }).addTo(map).bindPopup(destinationLabel || "Destino da entrega");
+    } else {
+      destinationMarkerRef.current.setLatLng(coordinates);
+    }
+  }, [destination, destinationLabel, mapInitialized]);
+
+  // Desenha a rota de carro/moto (estimada). Evita consultar a API a cada atualização do GPS.
+  useEffect(() => {
+    const map = mapRef.current;
+    const leaflet = window.L;
+    if (!mapInitialized || !map || !leaflet || !position || !destination) return;
+    if (routeRequestInFlightRef.current) return;
+    if (lastRouteOriginRef.current && distanceBetweenMeters(lastRouteOriginRef.current, position) < 120) return;
+
+    routeRequestInFlightRef.current = true;
+    lastRouteOriginRef.current = position;
+    const routeUrl = `https://router.project-osrm.org/route/v1/driving/${position.lon},${position.lat};${destination.lon},${destination.lat}?overview=full&geometries=geojson`;
+
+    fetch(routeUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error("route_unavailable");
+        return response.json() as Promise<{
+          routes?: Array<{
+            distance: number;
+            duration: number;
+            geometry?: { coordinates?: Array<[number, number]> };
+          }>;
+        }>;
+      })
+      .then((data) => {
+        const route = data.routes?.[0];
+        const liveMap = mapRef.current;
+        const liveLeaflet = window.L;
+        if (!route?.geometry?.coordinates?.length || !liveMap || !liveLeaflet) {
+          setRouteInfo("Destino marcado no mapa. Não foi possível calcular a rota automática.");
+          return;
+        }
+        routeLayerRef.current?.remove();
+        const routePoints = route.geometry.coordinates.map(([lon, lat]) => [lat, lon] as [number, number]);
+        routeLayerRef.current = liveLeaflet.polyline(routePoints, {
+          color: "#2563eb",
+          weight: 5,
+          opacity: 0.88,
+          lineJoin: "round",
+        }).addTo(liveMap);
+        const km = (route.distance / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+        const minutes = Math.max(1, Math.round(route.duration / 60));
+        setRouteInfo(`Rota estimada: ${km} km · ${minutes} min`);
+        liveMap.fitBounds(liveLeaflet.latLngBounds([[position.lat, position.lon], [destination.lat, destination.lon]]), {
+          padding: [36, 36],
+          maxZoom: 16,
+        });
+      })
+      .catch(() => {
+        setRouteInfo("Destino marcado. A rota automática está indisponível no momento.");
+      })
+      .finally(() => {
+        routeRequestInFlightRef.current = false;
+      });
+  }, [position, destination, mapInitialized]);
+
+  const mapsUrl = currentOrder
+    ? position
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(`${position.lat},${position.lon}`)}&destination=${encodeURIComponent(destinationAddress)}&travelmode=driving`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(destinationAddress)}`
+    : "https://www.google.com/maps/@-7.895,-35.172,13z";
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b border-zinc-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-wide text-red-600">LOCALIZAÇÃO</p>
+          <h2 className="mt-1 text-2xl font-black">Mapa em tempo real</h2>
+          <p className="mt-1 text-sm text-zinc-500">Veja sua posição atual e a rota da entrega quando houver um pedido ativo.</p>
+        </div>
+        <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-black ${gpsStatus === "tracking" ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-600"}`}>
+          <span className={`h-2 w-2 rounded-full ${gpsStatus === "tracking" ? "bg-green-500" : "bg-zinc-400"}`} />
+          {gpsStatus === "tracking" ? "GPS ativo" : gpsStatus === "loading" ? "Buscando GPS..." : "GPS não ativado"}
+        </span>
+      </div>
+
+      <div className="relative bg-[#e9eef2]">
+        <div ref={mapElementRef} className="h-[340px] w-full sm:h-[420px]" aria-label="Mapa da localização do entregador" />
+        {!leafletReady && !mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#e9eef2] text-sm font-bold text-zinc-600">Carregando mapa...</div>
+        )}
+        {mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-[#e9eef2] p-6 text-center text-sm font-bold text-red-700">{mapError}</div>
+        )}
+        {!position && !mapError && (
+          <div className="absolute bottom-3 left-3 right-3 z-[1200] rounded-2xl border border-white/70 bg-white/95 p-4 shadow-lg sm:bottom-4 sm:left-4 sm:right-auto sm:max-w-sm">
+            <p className="font-black text-zinc-900">Ative o GPS para ver sua posição</p>
+            <p className="mt-1 text-xs leading-5 text-zinc-600">O mapa está centrado em Paudalho, mas o marcador só aparece depois que o navegador autorizar sua localização real.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div className="min-w-0 flex-1">
+          <p className="font-black text-zinc-900">{position ? "Sua posição está sendo atualizada" : online ? "Você está online, mas o GPS ainda não está ativo" : "Localização desligada"}</p>
+          <p className="mt-1 text-sm text-zinc-500">
+            {position ? `Precisão aproximada do GPS: ${Math.max(1, Math.round(position.accuracy ?? 0))} metros.` : locationError || "Clique em Ativar localização e permita o acesso quando o navegador perguntar."}
+          </p>
+          {currentOrder && (
+            <p className="mt-2 text-sm font-bold text-zinc-700">Destino: {destinationLabel || destinationDescription}{routeInfo ? ` · ${routeInfo}` : ""}</p>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={gpsStatus === "tracking" ? stopTracking : startTracking}
+            className={`rounded-xl px-4 py-3 text-sm font-black text-white transition ${gpsStatus === "tracking" ? "bg-zinc-800 hover:bg-zinc-900" : "bg-red-600 hover:bg-red-700"}`}
+          >
+            {gpsStatus === "tracking" ? "Parar GPS" : gpsStatus === "loading" ? "Localizando..." : "Ativar localização"}
+          </button>
+          {currentOrder && (
+            <a href={mapsUrl} target="_blank" rel="noreferrer" className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-black text-zinc-700 transition hover:bg-zinc-50">
+              Abrir navegação ↗
+            </a>
+          )}
+        </div>
+      </div>
+      <p className="border-t border-zinc-100 px-5 py-3 text-[11px] leading-5 text-zinc-400">Mapa © OpenStreetMap · A rota e o tempo são estimativas. Nesta etapa, a localização aparece no painel do entregador; ela ainda não é compartilhada com o cliente.</p>
+    </section>
+  );
+}
+
 
 export default function EntregadorPainelPage() {
   const router =
@@ -1549,6 +2023,14 @@ export default function EntregadorPainelPage() {
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-8">
+        <div className={activeTab === "inicio" ? "contents" : "hidden"}>
+          <DriverLiveMap
+            online={online}
+            currentOrder={currentOrder}
+            visible={activeTab === "inicio"}
+          />
+        </div>
+
         {/* ======================================
             ERRO GLOBAL
         ====================================== */}

@@ -58,6 +58,9 @@ export default function EntregadorPage() {
   ] =
     useState("");
 
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [
     code,
     setCode,
@@ -109,6 +112,8 @@ export default function EntregadorPage() {
     setCode("");
     setPassword("");
     setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
 
     clearMessages();
   }
@@ -730,23 +735,40 @@ export default function EntregadorPage() {
                     Senha
                   </label>
 
-                  <input
-                    type="password"
-                    required
-                    value={
-                      password
-                    }
-                    onChange={(
-                      event
-                    ) =>
-                      setPassword(
-                        event.target.value
-                      )
-                    }
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      required
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 pr-14 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((visible) => !visible)}
+                      aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                      title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                      className="absolute inset-y-0 right-3 flex items-center justify-center text-zinc-500 transition hover:text-red-600"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                        {showPassword ? (
+                          <>
+                            <path d="M3 3l18 18" />
+                            <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                            <path d="M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.5 4.5 9.5 7-.4 1-1.2 2.2-2.3 3.3" />
+                            <path d="M6.2 6.2C4.2 7.4 2.9 9.4 2.5 12c.8 2.1 4.2 7 9.5 7 1.2 0 2.3-.2 3.3-.7" />
+                          </>
+                        ) : (
+                          <>
+                            <path d="M2.5 12s3.2-7 9.5-7 9.5 7 9.5 7-3.2 7-9.5 7-9.5-7-9.5-7Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </>
+                        )}
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 {error && (
@@ -990,23 +1012,40 @@ export default function EntregadorPage() {
                       Criar senha
                     </label>
 
-                    <input
-                      type="password"
-                      required
-                      value={
-                        password
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setPassword(
-                          event.target.value
-                        )
-                      }
-                      autoComplete="new-password"
-                      placeholder="••••••••"
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        required
+                        value={password}
+                        onChange={(event) => setPassword(event.target.value)}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 pr-14 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((visible) => !visible)}
+                        aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        title={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                        className="absolute inset-y-0 right-3 flex items-center justify-center text-zinc-500 transition hover:text-red-600"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                          {showPassword ? (
+                            <>
+                              <path d="M3 3l18 18" />
+                              <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                              <path d="M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.5 4.5 9.5 7-.4 1-1.2 2.2-2.3 3.3" />
+                              <path d="M6.2 6.2C4.2 7.4 2.9 9.4 2.5 12c.8 2.1 4.2 7 9.5 7 1.2 0 2.3-.2 3.3-.7" />
+                            </>
+                          ) : (
+                            <>
+                              <path d="M2.5 12s3.2-7 9.5-7 9.5 7 9.5 7-3.2 7-9.5 7-9.5-7-9.5-7Z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </>
+                          )}
+                        </svg>
+                      </button>
+                    </div>
 
                     <p className="mt-2 text-xs text-zinc-400">
                       Use pelo menos 6 caracteres.
@@ -1018,23 +1057,40 @@ export default function EntregadorPage() {
                       Confirmar senha
                     </label>
 
-                    <input
-                      type="password"
-                      required
-                      value={
-                        confirmPassword
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setConfirmPassword(
-                          event.target.value
-                        )
-                      }
-                      autoComplete="new-password"
-                      placeholder="••••••••"
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        required
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3.5 pr-14 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword((visible) => !visible)}
+                        aria-label={showConfirmPassword ? "Ocultar confirmação de senha" : "Mostrar confirmação de senha"}
+                        title={showConfirmPassword ? "Ocultar senha" : "Mostrar senha"}
+                        className="absolute inset-y-0 right-3 flex items-center justify-center text-zinc-500 transition hover:text-red-600"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5" aria-hidden="true">
+                          {showConfirmPassword ? (
+                            <>
+                              <path d="M3 3l18 18" />
+                              <path d="M10.6 10.6a2 2 0 002.8 2.8" />
+                              <path d="M9.9 5.2A10.8 10.8 0 0112 5c5 0 8.5 4.5 9.5 7-.4 1-1.2 2.2-2.3 3.3" />
+                              <path d="M6.2 6.2C4.2 7.4 2.9 9.4 2.5 12c.8 2.1 4.2 7 9.5 7 1.2 0 2.3-.2 3.3-.7" />
+                            </>
+                          ) : (
+                            <>
+                              <path d="M2.5 12s3.2-7 9.5-7 9.5 7 9.5 7-3.2 7-9.5 7-9.5-7-9.5-7Z" />
+                              <circle cx="12" cy="12" r="3" />
+                            </>
+                          )}
+                        </svg>
+                      </button>
+                    </div>
                   </div>
 
                   {error && (

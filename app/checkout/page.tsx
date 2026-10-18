@@ -398,6 +398,13 @@ function CheckoutContent() {
       "restaurant"
     );
 
+  // Quando esta URL veio de "Pedir novamente", os itens do pedido antigo
+  // são carregados no estado do checkout sem usar o carrinho persistido.
+  const reorderOrderId =
+    searchParams.get(
+      "reorder_order"
+    );
+
   const [
     restaurant,
     setRestaurant,
@@ -451,6 +458,18 @@ function CheckoutContent() {
     setCartIssue,
   ] =
     useState("");
+
+  // Aviso informativo quando algum item do pedido anterior não está disponível.
+  // Não bloqueia o checkout dos itens que continuam disponíveis.
+  const [reorderNotice, setReorderNotice] = useState("");
+
+  useEffect(() => {
+    const notice = sessionStorage.getItem("reorder-warning");
+    if (notice) {
+      setReorderNotice(notice);
+      sessionStorage.removeItem("reorder-warning");
+    }
+  }, []);
 
   // ==========================================
   // HORÁRIO
@@ -588,7 +607,11 @@ function CheckoutContent() {
       if (!session) {
         sessionStorage.setItem(
           "after-login",
-          `/checkout?restaurant=${restaurantId}`
+          `/checkout?restaurant=${encodeURIComponent(restaurantId)}${
+            reorderOrderId
+              ? `&reorder_order=${encodeURIComponent(reorderOrderId)}`
+              : ""
+          }`
         );
 
         router.replace(
@@ -875,68 +898,75 @@ function CheckoutContent() {
       }
 
       // ======================================
-      // CARRINHO
+      // ITENS DO CHECKOUT
       // ======================================
 
-      const storageKey =
-        `cart-${restaurantId}`;
+      let parsed: StoredCartItem[];
 
-      const saved =
-        localStorage.getItem(
-          storageKey
+      if (reorderOrderId) {
+        // O RPC valida que o pedido pertence ao cliente autenticado.
+        // Esta rota não lê, sobrescreve nem depende do carrinho salvo.
+        const {
+          data: reorderData,
+          error: reorderError,
+        } = await supabase.rpc(
+          "get_my_reorder_cart",
+          { p_order_id: reorderOrderId }
         );
 
-      if (!saved) {
-        setError(
-          "Seu carrinho está vazio."
-        );
-
-        setLoading(
-          false
-        );
-
-        return;
-      }
-
-      let parsed:
-        StoredCartItem[];
-
-      try {
-        const result =
-          JSON.parse(
-            saved
-          );
-
-        if (
-          !Array.isArray(
-            result
-          ) ||
-          result.length ===
-            0
-        ) {
-          setError(
-            "Seu carrinho está vazio."
-          );
-
-          setLoading(
-            false
-          );
-
+        if (reorderError) {
+          console.error("Erro ao carregar pedido para recompra:", reorderError);
+          setError("Não foi possível abrir este pedido para recompra. Volte a Meus pedidos e tente novamente.");
+          setLoading(false);
           return;
         }
 
-        parsed =
-          result as StoredCartItem[];
-      } catch {
-        setError(
-          "Não foi possível carregar seu carrinho."
+        const reorderRow = Array.isArray(reorderData)
+          ? reorderData[0]
+          : reorderData;
+        const reorderItems = Array.isArray(reorderRow?.cart_items)
+          ? reorderRow.cart_items as StoredCartItem[]
+          : [];
+        const unavailableCount = Math.max(
+          0,
+          Number(reorderRow?.unavailable_items ?? 0) || 0
         );
 
-        setLoading(
-          false
-        );
+        if (
+          String(reorderRow?.restaurant_id ?? "") !== restaurantId ||
+          unavailableCount > 0 ||
+          reorderItems.length === 0
+        ) {
+          setError("Este pedido não pode ser repetido porque um ou mais produtos não estão disponíveis. Volte a Meus pedidos para ver os detalhes.");
+          setLoading(false);
+          return;
+        }
 
-        return;
+        parsed = reorderItems;
+      } else {
+        // Checkout normal: mantém o comportamento existente baseado no carrinho.
+        const storageKey = `cart-${restaurantId}`;
+        const saved = localStorage.getItem(storageKey);
+
+        if (!saved) {
+          setError("Seu carrinho está vazio.");
+          setLoading(false);
+          return;
+        }
+
+        try {
+          const result = JSON.parse(saved);
+          if (!Array.isArray(result) || result.length === 0) {
+            setError("Seu carrinho está vazio.");
+            setLoading(false);
+            return;
+          }
+          parsed = result as StoredCartItem[];
+        } catch {
+          setError("Não foi possível carregar seu carrinho.");
+          setLoading(false);
+          return;
+        }
       }
 
       // ======================================
@@ -1452,13 +1482,23 @@ function CheckoutContent() {
         0
       ) {
         setError(
-          "Nenhum produto do carrinho está disponível."
+          reorderOrderId
+            ? "Nenhum produto deste pedido está mais disponível para recompra."
+            : "Nenhum produto do carrinho está disponível."
         );
 
         setLoading(
           false
         );
 
+        return;
+      }
+
+      // Se algo ficou indisponível entre a validação de Meus pedidos e o
+      // carregamento do checkout, não finaliza uma recompra parcial.
+      if (reorderOrderId && hasProblem) {
+        setError("Um produto ou adicional deste pedido deixou de estar disponível. Volte a Meus pedidos e tente novamente.");
+        setLoading(false);
         return;
       }
 
@@ -1482,6 +1522,7 @@ function CheckoutContent() {
     loadCheckout();
   }, [
     restaurantId,
+    reorderOrderId,
     router,
   ]);
 
@@ -2642,15 +2683,19 @@ function CheckoutContent() {
     // LIMPAR CARRINHO
     // ======================================
 
-    localStorage.removeItem(
-      `cart-${restaurantId}`
-    );
+    // Recompra não usou o carrinho persistido; portanto ele deve continuar
+    // exatamente como estava antes de abrir este checkout.
+    if (!reorderOrderId) {
+      localStorage.removeItem(
+        `cart-${restaurantId}`
+      );
 
-    window.dispatchEvent(
-      new Event(
-        "cart-updated"
-      )
-    );
+      window.dispatchEvent(
+        new Event(
+          "cart-updated"
+        )
+      );
+    }
 
     const createdOrderId =
       String(
@@ -3367,6 +3412,23 @@ function CheckoutContent() {
               PROBLEMA NO CARRINHO
           ================================== */}
 
+          {reorderNotice && (
+            <div
+              role="status"
+              className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"
+            >
+              <p className="font-black">⚠️ Itens não incluídos nesta repetição</p>
+              <p className="mt-1">{reorderNotice}</p>
+              <button
+                type="button"
+                onClick={() => setReorderNotice("")}
+                className="mt-2 text-xs font-bold text-amber-800 underline"
+              >
+                Entendi
+              </button>
+            </div>
+          )}
+
           {cartIssue && (
             <div className="rounded-2xl bg-yellow-50 p-4 text-sm font-bold text-yellow-800">
               ⚠️ {cartIssue}
@@ -3924,15 +3986,25 @@ function CheckoutContent() {
             <div className="mt-5 rounded-xl bg-green-50 p-3 text-sm font-medium text-green-700">
               🔒 Pagamento online e seguro
             </div>
-          </div>  
+          </div>
         </aside>
       </div>
     </main>
   );
 }
+// O conteúdo do checkout usa useSearchParams; o componente fica dentro de Suspense
+// para que o Next.js consiga gerar a página /checkout durante o build.
 export default function CheckoutPage() {
   return (
-    <Suspense fallback={<div>Carregando checkout...</div>}>
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[#f7f7f7]">
+          <p className="font-bold">
+            Carregando checkout...
+          </p>
+        </main>
+      }
+    >
       <CheckoutContent />
     </Suspense>
   );

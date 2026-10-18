@@ -319,6 +319,17 @@ export default function RestaurantClient({ restaurant, products }: Props) {
     setFavoriteLoading(false);
   }
 
+  async function openRestaurantMessages() {
+    const target = `/mensagens?restaurant=${encodeURIComponent(restaurant.id)}`;
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !sessionData.session) {
+      sessionStorage.setItem("after-login", target);
+      router.push("/login");
+      return;
+    }
+    router.push(target);
+  }
+
   const menuSections = useMemo(() => {
     const matchedIds = new Set<string>();
     const sections = categories.map((category) => {
@@ -458,68 +469,119 @@ export default function RestaurantClient({ restaurant, products }: Props) {
       </header>
 
       <div className="mx-auto max-w-6xl px-4 py-8">
-        {/* LOJA */}
+        {/* CARTÃO DA LOJA: informações essenciais, com menos ruído visual */}
         <section>
-          <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
-            {restaurant.cover_url? (
-              <div className="h-80 w-full overflow-hidden bg-zinc-100">
-                <img src={restaurant.cover_url} alt={`Capa da ${restaurant.name}`} className="h-full w-full object-cover object-[center_30%]" />
+          <div className="overflow-hidden rounded-3xl border border-zinc-200/80 bg-white shadow-sm">
+            {restaurant.cover_url ? (
+              <div className="h-44 w-full overflow-hidden bg-zinc-100 sm:h-52 md:h-60">
+                <img
+                  src={restaurant.cover_url}
+                  alt={`Capa da ${restaurant.name}`}
+                  className="h-full w-full object-cover object-[center_30%]"
+                />
               </div>
             ) : (
-              <div className="flex h-64 items-center justify-center bg-gradient-to-r from-red-600 to-red-500 text-8xl">🍕</div>
+              <div className="flex h-40 items-center justify-center bg-gradient-to-r from-red-600 to-rose-500 text-6xl sm:h-48 sm:text-7xl">🍽️</div>
             )}
-            <div className="p-6">
-              <div className="flex items-start justify-between gap-4">
+
+            <div className="p-5 sm:p-6 md:p-7">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h1 className="text-3xl font-black">{restaurant.name}</h1>
-                  <p className="mt-2 text-zinc-500">{restaurant.description || "Restaurante em Paudalho"}</p>
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-red-600">Restaurante</p>
+                  <h1 className="mt-1 text-2xl font-black tracking-tight text-zinc-950 sm:text-3xl">{restaurant.name}</h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-500">
+                    {restaurant.description || "Escolha seus produtos e faça seu pedido direto por aqui."}
+                  </p>
                 </div>
-                <button type="button" disabled={favoriteLoading} onClick={toggleFavorite} className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full border text-3xl transition ${isFavorite? "border-red-200 bg-red-50 text-red-600" : "border-zinc-200 bg-white text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500"} disabled:opacity-50`}>
-                  {favoriteLoading? "..." : isFavorite? "♥" : "♡"}
-                </button>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={openRestaurantMessages}
+                    className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-red-600 px-4 text-sm font-extrabold text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-4 focus:ring-red-100"
+                    aria-label={`Falar com a loja ${restaurant.name}`}
+                  >
+                    <span aria-hidden="true">💬</span>
+                    <span>Falar com a loja</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={favoriteLoading}
+                    onClick={toggleFavorite}
+                    aria-label={isFavorite ? "Remover loja dos favoritos" : "Favoritar loja"}
+                    aria-pressed={isFavorite}
+                    title={isFavorite ? "Remover dos favoritos" : "Favoritar loja"}
+                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-2xl transition focus:outline-none focus:ring-4 focus:ring-red-100 ${isFavorite ? "border-red-200 bg-red-50 text-red-600" : "border-zinc-200 bg-white text-zinc-400 hover:border-red-200 hover:bg-red-50 hover:text-red-500"} disabled:opacity-50`}
+                  >
+                    {favoriteLoading ? "…" : isFavorite ? "♥" : "♡"}
+                  </button>
+                </div>
               </div>
-              <div className="mt-5 flex flex-wrap items-center gap-4 text-sm text-zinc-600">
+
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 {!reviewsLoading && (
-                  <button type="button" onClick={() => document.getElementById("avaliacoes")?.scrollIntoView({ behavior: "smooth", block: "start" })} className="inline-flex items-center gap-2 rounded-full bg-yellow-50 px-3 py-1.5 font-black text-yellow-800 transition hover:bg-yellow-100">
-                    <span>⭐</span>
-                    {reviewCount > 0? (<><span>{ratingNumberText(averageRating)}</span><span className="font-bold text-yellow-700">({reviewCount} {reviewCount === 1? "avaliação" : "avaliações"})</span></>) : (<span>Ainda sem avaliações</span>)}
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById("avaliacoes")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-100 bg-amber-50 px-3 py-1.5 text-xs font-extrabold text-amber-800 transition hover:bg-amber-100"
+                  >
+                    <span aria-hidden="true">⭐</span>
+                    {reviewCount > 0 ? <><span>{ratingNumberText(averageRating)}</span><span className="font-bold">({reviewCount} {reviewCount === 1 ? "avaliação" : "avaliações"})</span></> : <span>Ainda sem avaliações</span>}
                   </button>
                 )}
-                {restaurant.neighborhood && <span>📍 {restaurant.neighborhood}</span>}
-                <span>⏱ {restaurant.estimated_delivery_minutes?? 40} min</span>
-                <span>🛵 Entrega {money(restaurant.delivery_base_fee)}</span>
-                <span>🛒 Pedido mínimo {money(restaurant.minimum_order)}</span>
+                {restaurant.neighborhood && <span className="rounded-full bg-zinc-100 px-3 py-1.5 text-xs font-bold text-zinc-600">📍 {restaurant.neighborhood}</span>}
               </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50/80 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Tempo estimado</p>
+                  <p className="mt-1 text-sm font-extrabold text-zinc-800">⏱ {restaurant.estimated_delivery_minutes ?? 40} min</p>
+                </div>
+                <div className="rounded-2xl border border-zinc-100 bg-zinc-50/80 px-3 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Taxa de entrega</p>
+                  <p className="mt-1 text-sm font-extrabold text-zinc-800">🛵 {money(restaurant.delivery_base_fee)}</p>
+                </div>
+                <div className="col-span-2 rounded-2xl border border-zinc-100 bg-zinc-50/80 px-3 py-3 sm:col-span-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">Pedido mínimo</p>
+                  <p className="mt-1 text-sm font-extrabold text-zinc-800">🛒 {money(restaurant.minimum_order)}</p>
+                </div>
+              </div>
+
               {!cnpjSalesStatusLoading && cnpjSalesBlocked && (
-                <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-4">
-                  <p className="font-black text-red-700">🔴 Loja temporariamente indisponível para vendas</p>
-                  <p className="mt-1 text-sm font-semibold leading-5 text-red-600">Esta loja precisa regularizar o CNPJ antes de voltar a receber novos pedidos.</p>
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+                  <p className="font-extrabold text-red-700">Loja temporariamente indisponível para vendas</p>
+                  <p className="mt-1 text-sm leading-5 text-red-600">Esta loja precisa regularizar o CNPJ antes de voltar a receber novos pedidos.</p>
                 </div>
               )}
-              <div className="mt-5">
-                {openStatusLoading? (
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm font-bold text-zinc-500">🕐 Verificando horário da loja...</div>
-                ) : openStatus? (
-                  <div className={`rounded-2xl px-4 py-3 ${storeIsOpen? "bg-green-50" : "bg-red-50"}`}>
-                    <p className={`font-black ${storeIsOpen? "text-green-700" : "text-red-700"}`}>{storeIsOpen? "● Aberto agora" : "● Fechado agora"}</p>
-                    <p className={`mt-1 text-sm ${storeIsOpen? "text-green-600" : "text-red-600"}`}>{storeIsOpen? openStatus.closes_at? `Fecha às ${formatHour(openStatus.closes_at)}` : "Recebendo pedidos agora." : nextOpening}</p>
+
+              <div className="mt-4">
+                {openStatusLoading ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-500">Verificando horário da loja…</div>
+                ) : openStatus ? (
+                  <div className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 ${storeIsOpen ? "border-emerald-100 bg-emerald-50" : "border-red-100 bg-red-50"}`}>
+                    <div className="flex items-center gap-2">
+                      <span className={`h-2.5 w-2.5 rounded-full ${storeIsOpen ? "bg-emerald-500" : "bg-red-500"}`} />
+                      <p className={`font-extrabold ${storeIsOpen ? "text-emerald-800" : "text-red-800"}`}>{storeIsOpen ? "Aberto agora" : "Fechado agora"}</p>
+                    </div>
+                    <p className={`text-sm ${storeIsOpen ? "text-emerald-700" : "text-red-700"}`}>{storeIsOpen ? openStatus.closes_at ? `Fecha às ${formatHour(openStatus.closes_at)}` : "Recebendo pedidos agora." : nextOpening}</p>
                   </div>
                 ) : (
                   <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-500">Horário de funcionamento indisponível.</div>
                 )}
               </div>
-              <div className="mt-4">
-                {orderOptionsLoading? (
-                  <div className="rounded-2xl bg-zinc-50 px-4 py-3 text-sm font-bold text-zinc-500">Verificando entrega e retirada...</div>
-                ) : orderOptions? (
+
+              <div className="mt-3">
+                {orderOptionsLoading ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-500">Verificando formas de pedido…</div>
+                ) : orderOptions ? (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className={`rounded-2xl border px-4 py-3 ${deliveryAvailable? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                      <p className={`font-black ${deliveryAvailable? "text-green-700" : "text-red-700"}`}>🛵 Entrega</p>
-                      <p className={`mt-1 text-sm font-bold ${deliveryAvailable? "text-green-600" : "text-red-600"}`}>{deliveryAvailable? "Disponível" : "Temporariamente pausada"}</p>
+                    <div className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${deliveryAvailable ? "border-emerald-100 bg-white" : "border-zinc-200 bg-zinc-50"}`}>
+                      <div><p className="text-sm font-extrabold text-zinc-800">🛵 Entrega</p><p className={`mt-1 text-xs font-semibold ${deliveryAvailable ? "text-emerald-700" : "text-zinc-500"}`}>{deliveryAvailable ? "Disponível" : "Temporariamente pausada"}</p></div>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-extrabold ${deliveryAvailable ? "bg-emerald-50 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>{deliveryAvailable ? "Ativa" : "Pausada"}</span>
                     </div>
-                    <div className={`rounded-2xl border px-4 py-3 ${pickupAvailable? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                      <p className={`font-black ${pickupAvailable? "text-green-700" : "text-red-700"}`}>🏪 Retirada na loja</p>
-                      <p className={`mt-1 text-sm font-bold ${pickupAvailable? "text-green-600" : "text-red-600"}`}>{pickupAvailable? "Disponível" : "Temporariamente pausada"}</p>
+                    <div className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${pickupAvailable ? "border-emerald-100 bg-white" : "border-zinc-200 bg-zinc-50"}`}>
+                      <div><p className="text-sm font-extrabold text-zinc-800">🏪 Retirada na loja</p><p className={`mt-1 text-xs font-semibold ${pickupAvailable ? "text-emerald-700" : "text-zinc-500"}`}>{pickupAvailable ? "Disponível" : "Temporariamente pausada"}</p></div>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-extrabold ${pickupAvailable ? "bg-emerald-50 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>{pickupAvailable ? "Ativa" : "Pausada"}</span>
                     </div>
                   </div>
                 ) : (
@@ -540,9 +602,9 @@ export default function RestaurantClient({ restaurant, products }: Props) {
           ) : (
             menuSections.map((section) => (
               <section key={section.id} className="mt-8">
-                <div className="mb-4 flex items-center gap-3">
-                  <h2 className="text-xl font-black uppercase tracking-wide">{section.name}</h2>
-                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-black text-zinc-500">{section.products.length}</span>
+                <div className="mb-4 flex items-end justify-between gap-3 border-b border-zinc-200 pb-3">
+                  <h2 className="text-lg font-black tracking-tight text-zinc-900 sm:text-xl">{section.name}</h2>
+                  <span className="rounded-full bg-white border border-zinc-200 px-3 py-1 text-xs font-extrabold text-zinc-500">{section.products.length}</span>
                 </div>
                 {/* AQUI MUDANÇA PRINCIPAL: flex-col = um embaixo do outro */}
                 <div className="flex flex-col gap-3">
@@ -552,8 +614,8 @@ export default function RestaurantClient({ restaurant, products }: Props) {
                     const hasDiscount = discount > 0;
                     const finalPrice = priceForProduct(product);
                     return (
-                      <button key={product.id} onClick={() => openProduct(product)} className="flex w-full items-center gap-4 rounded-2xl bg-white p-4 text-left shadow-sm transition hover:shadow-md border border-zinc-100">
-                        <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-50 text-3xl">
+                      <button key={product.id} onClick={() => openProduct(product)} className="group flex w-full items-center gap-3 rounded-2xl border border-zinc-200/80 bg-white p-3 text-left shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-red-200 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-red-100 sm:gap-4 sm:p-4">
+                        <div className="flex h-[76px] w-[76px] shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-50 text-3xl sm:h-20 sm:w-20">
                           {product.image_url? <img src={product.image_url} alt={product.name} className="h-full w-full object-cover" /> : <span>{fallbackEmoji(product.category)}</span>}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -574,6 +636,7 @@ export default function RestaurantClient({ restaurant, products }: Props) {
                             )}
                           </div>
                         </div>
+                        <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-50 text-lg font-black text-red-600 transition group-hover:bg-red-600 group-hover:text-white">+</span>
                       </button>
                     );
                   })}
@@ -657,7 +720,7 @@ export default function RestaurantClient({ restaurant, products }: Props) {
         </section>
       </div>
 
-      {/* MODAIS (mantive igual) */}
+      {/* MODAIS */}
       {selectedProduct && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4" onClick={closeProduct}>
           <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white p-6 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>

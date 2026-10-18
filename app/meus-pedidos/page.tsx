@@ -16,6 +16,7 @@ type OrderItem = {
   name: string;
   quantity: number;
   unit_price: number | string;
+  [key: string]: unknown;
 };
 
 type FulfillmentMethod =
@@ -25,7 +26,8 @@ type FulfillmentMethod =
 type OrderView =
   | "payment"
   | "active"
-  | "finished";
+  | "finished"
+  | "cancelled";
 
 type Order = {
   order_id: string;
@@ -44,6 +46,7 @@ type Order = {
     | null;
 
   status: string;
+  cancellation_reason?: string | null;
 
   payment_method: string | null;
   payment_status: string | null;
@@ -66,6 +69,175 @@ type Order = {
 
   items: OrderItem[];
 };
+
+type ReorderCartEntry = {
+  name?: string | null;
+  product_name?: string | null;
+  product?: { id?: string | null; name?: string | null } | null;
+  product_id?: string | null;
+  id?: string | null;
+  quantity?: number | string | null;
+};
+
+function normalizeProductName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function unavailableProductNames(
+  originalItems: OrderItem[],
+  availableCartItems: ReorderCartEntry[]
+): string[] {
+  const originalNames = originalItems
+    .map((item) => item.name?.trim())
+    .filter((name): name is string => Boolean(name));
+
+  // Se nenhum item sobreviveu à validação do banco, todos os produtos
+  // do pedido original estão indisponíveis.
+  if (availableCartItems.length === 0) {
+    return [...new Set(originalNames)];
+  }
+
+  const availableNameCounts = new Map<string, number>();
+  let namesFound = 0;
+
+  for (const item of availableCartItems) {
+    const name =
+      item.product?.name?.trim() ||
+      item.name?.trim() ||
+      item.product_name?.trim() ||
+      "";
+    if (!name) continue;
+
+    namesFound += 1;
+    const key = normalizeProductName(name);
+    const quantity = Math.max(1, Number(item.quantity ?? 1) || 1);
+    availableNameCounts.set(
+      key,
+      (availableNameCounts.get(key) ?? 0) + quantity
+    );
+  }
+
+  // Se o RPC não retornar nomes para os itens disponíveis, não inventa
+  // quais produtos faltaram; o contador do banco continuará sendo exibido.
+  if (namesFound === 0) return [];
+
+  const missing: string[] = [];
+  const remaining = new Map(availableNameCounts);
+
+  for (const item of originalItems) {
+    const name = item.name?.trim();
+    if (!name) continue;
+
+    const key = normalizeProductName(name);
+    const requestedQuantity = Math.max(1, Number(item.quantity ?? 1) || 1);
+    const availableQuantity = remaining.get(key) ?? 0;
+
+    if (availableQuantity < requestedQuantity) {
+      missing.push(name);
+      remaining.set(key, 0);
+    } else {
+      remaining.set(key, availableQuantity - requestedQuantity);
+    }
+  }
+
+  return [...new Set(missing)];
+}
+
+type UnavailableProduct = {
+  name: string;
+  imageUrl: string | null;
+};
+
+type ReorderNotice = {
+  title: string;
+  summary: string;
+  unavailableNames: string[];
+  unavailableProducts?: UnavailableProduct[];
+};
+
+function formatUnavailableMessage(
+  count: number,
+  names: string[],
+  noAvailableProducts = false
+): ReorderNotice {
+  const uniqueNames = [...new Set(names.filter((name) => name.trim()))];
+  const itemCount = Math.max(count, uniqueNames.length);
+
+  if (noAvailableProducts) {
+    return {
+      title: "Nenhum produto disponível",
+      summary: "Nenhum produto deste pedido está disponível atualmente.",
+      unavailableNames: uniqueNames,
+    };
+  }
+
+  const countSentence = itemCount === 1
+    ? "1 produto do pedido anterior não está disponível na loja."
+    : `${itemCount} produtos do pedido anterior não estão disponíveis na loja.`;
+
+  return {
+    title: "Não foi possível repetir este pedido",
+    summary: uniqueNames.length > 0
+      ? countSentence
+      : `${countSentence} Não foi possível identificar o nome do produto indisponível.`,
+    unavailableNames: uniqueNames,
+  };
+}
+
+function normalizeImageUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const raw = value.trim();
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("data:image/")) return raw;
+
+  // Produto pode guardar o caminho do arquivo em vez da URL completa.
+  const path = raw
+    .replace(/^\/+/, "")
+    .replace(/^storage\/v1\/object\/public\/product-images\//, "");
+  if (!path || path.includes(" ")) return null;
+  return supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+}
+
+function extractProductImage(source: unknown): string | null {
+  if (!source || typeof source !== "object") return null;
+  const record = source as Record<string, unknown>;
+  const keys = [
+    "image_url",
+    "imageUrl",
+    "product_image_url",
+    "photo_url",
+    "photoUrl",
+    "picture_url",
+    "pictureUrl",
+    "thumbnail_url",
+    "thumbnailUrl",
+    "image_path",
+    "photo_path",
+    "image",
+    "photo",
+    "picture",
+    "thumbnail",
+  ];
+
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === "string") {
+      const url = normalizeImageUrl(candidate);
+      if (url) return url;
+    }
+    if (candidate && typeof candidate === "object") {
+      const nested = candidate as Record<string, unknown>;
+      const nestedUrl = normalizeImageUrl(
+        nested.url ?? nested.publicUrl ?? nested.public_url ?? nested.path
+      );
+      if (nestedUrl) return nestedUrl;
+    }
+  }
+  return null;
+}
 
 function money(
   value: number | string | null
@@ -339,12 +511,6 @@ export default function MeusPedidosPage() {
     useState(true);
 
   const [
-    refreshing,
-    setRefreshing,
-  ] =
-    useState(false);
-
-  const [
     error,
     setError,
   ] =
@@ -376,6 +542,100 @@ export default function MeusPedidosPage() {
   ] =
     useState("");
 
+  const [reorderMessage, setReorderMessage] = useState<ReorderNotice | null>(null);
+
+  async function buildUnavailableProductDetails(
+    order: Order,
+    notice: ReorderNotice
+  ): Promise<ReorderNotice> {
+    const names = [...new Set(notice.unavailableNames.map((name) => name.trim()).filter(Boolean))];
+    if (names.length === 0) {
+      return { ...notice, unavailableProducts: [] };
+    }
+
+    let currentProducts: Record<string, unknown>[] = [];
+    let unavailableProductRows: Record<string, unknown>[] = [];
+
+    try {
+      // Esta função SECURITY DEFINER lê a foto do produto mesmo quando active=false,
+      // respeitando no servidor a propriedade do pedido pelo cliente autenticado.
+      const { data: unavailableData, error: unavailableError } = await supabase.rpc(
+        "get_my_reorder_unavailable_products",
+        { p_order_id: order.order_id }
+      );
+
+      if (unavailableError) {
+        console.warn(
+          "Não foi possível buscar os dados dos produtos indisponíveis pelo RPC:",
+          unavailableError
+        );
+      } else {
+        unavailableProductRows = (unavailableData ?? []) as Record<string, unknown>[];
+      }
+    } catch (lookupError) {
+      console.warn("Erro ao buscar fotos dos produtos indisponíveis pelo RPC:", lookupError);
+    }
+
+    // Fallback para fotos públicas, se a função RPC ainda não tiver sido criada.
+    // Esta consulta pode não retornar produtos desativados por causa das políticas RLS.
+    try {
+      const { data, error: productsError } = await supabase
+        .from("products")
+        .select("*")
+        .eq("restaurant_id", order.restaurant_id);
+
+      if (productsError) {
+        console.warn("Não foi possível buscar as fotos pelo catálogo público:", productsError);
+      } else {
+        currentProducts = (data ?? []) as Record<string, unknown>[];
+      }
+    } catch (lookupError) {
+      console.warn("Erro ao consultar imagens no catálogo:", lookupError);
+    }
+
+    const originalItems = (order.items ?? []) as (OrderItem & Record<string, unknown>)[];
+    const details = names.map((name) => {
+      const normalized = normalizeProductName(name);
+      const originalItem = originalItems.find(
+        (item) => normalizeProductName(String(item.name ?? "")) === normalized
+      );
+      const originalProductId = String(
+        originalItem?.product_id ??
+        originalItem?.productId ??
+        (originalItem?.product && typeof originalItem.product === "object"
+          ? (originalItem.product as Record<string, unknown>).id
+          : "") ??
+        ""
+      );
+
+      const rpcProduct = unavailableProductRows.find((product) =>
+        (originalProductId && String(product.product_id ?? "") === originalProductId) ||
+        normalizeProductName(String(product.product_name ?? "")) === normalized
+      );
+      const rpcImage = normalizeImageUrl(rpcProduct?.image_url);
+      const originalImage = extractProductImage(originalItem);
+      const matchedProduct = currentProducts.find((product) =>
+        normalizeProductName(String(product.name ?? "")) === normalized
+      );
+      const currentImage = extractProductImage(matchedProduct);
+      return {
+        name,
+        imageUrl: rpcImage ?? originalImage ?? currentImage,
+      };
+    });
+
+    return { ...notice, unavailableProducts: details };
+  }
+
+  useEffect(() => {
+    if (!reorderMessage) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setReorderMessage(null);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [reorderMessage]);
+
   // ==========================================
   // CARREGAR PEDIDOS
   // ==========================================
@@ -385,16 +645,9 @@ export default function MeusPedidosPage() {
       async (
         firstLoad = false
       ) => {
-        if (
-          firstLoad
-        ) {
-          setLoading(
-            true
-          );
-        } else {
-          setRefreshing(
-            true
-          );
+        if (firstLoad) {
+          setLoading(true);
+          setError("");
         }
 
         const {
@@ -443,12 +696,7 @@ export default function MeusPedidosPage() {
           setLoading(
             false
           );
-
-          setRefreshing(
-            false
-          );
-
-          return;
+return;
         }
 
         const {
@@ -470,6 +718,27 @@ export default function MeusPedidosPage() {
             couponDetailsError
           );
         }
+
+        const {
+          data: cancellationData,
+          error: cancellationError,
+        } = await supabase.rpc("get_my_order_cancellation_reasons");
+
+        if (cancellationError) {
+          console.error(
+            "Erro ao carregar motivos de cancelamento:",
+            cancellationError
+          );
+        }
+
+        const cancellationReasonByOrder = new Map<string, string>(
+          ((cancellationData ?? []) as Array<{
+            order_id: string;
+            cancellation_reason: string | null;
+          }>)
+            .filter((row) => Boolean(row.cancellation_reason?.trim()))
+            .map((row) => [row.order_id, row.cancellation_reason!.trim()])
+        );
 
         const couponByOrder =
           new Map<
@@ -534,6 +803,11 @@ export default function MeusPedidosPage() {
               return {
                 ...order,
 
+                cancellation_reason:
+                  cancellationReasonByOrder.get(order.order_id) ??
+                  order.cancellation_reason ??
+                  null,
+
                 coupon_code:
                   coupon
                     ?.coupon_code ??
@@ -552,18 +826,12 @@ export default function MeusPedidosPage() {
           )
         );
 
-        setError(
-          ""
-        );
+        if (firstLoad) {
+          setError("");
+        }
 
-        setLoading(
-          false
-        );
-
-        setRefreshing(
-          false
-        );
-      },
+        setLoading(false);
+},
       [
         router,
       ]
@@ -692,135 +960,140 @@ export default function MeusPedidosPage() {
   // PEDIR NOVAMENTE
   // ==========================================
 
-  async function reorder(
-    order: Order
-  ) {
-    if (
-      reorderingOrderId
-    ) {
-      return;
-    }
+  async function reorder(order: Order) {
+    if (reorderingOrderId) return;
 
-    setError("");
-    setReorderingOrderId(
-      order.order_id
-    );
+    setReorderMessage(null);
+    setReorderingOrderId(order.order_id);
 
-    const {
-      data,
-      error:
-        reorderError,
-    } =
-      await supabase.rpc(
+    try {
+      const { data, error: reorderError } = await supabase.rpc(
         "get_my_reorder_cart",
-        {
-          p_order_id:
-            order.order_id,
-        }
+        { p_order_id: order.order_id }
       );
 
-    if (
-      reorderError
-    ) {
-      console.error(
-        "Erro ao repetir pedido:",
-        reorderError
-      );
-
-      setError(
-        "Não foi possível montar este pedido novamente."
-      );
-
-      setReorderingOrderId(
-        ""
-      );
-
-      return;
-    }
-
-    const row =
-      Array.isArray(data)
-        ? data[0]
-        : data;
-
-    const items =
-      row?.cart_items;
-
-    if (
-      !Array.isArray(items) ||
-      items.length === 0
-    ) {
-      setError(
-        "Nenhum produto deste pedido está disponível atualmente."
-      );
-
-      setReorderingOrderId(
-        ""
-      );
-
-      return;
-    }
-
-    const restaurantId =
-      String(
-        row.restaurant_id ??
-          order.restaurant_id
-      );
-
-    const storageKey =
-      `cart-${restaurantId}`;
-
-    const existing =
-      localStorage.getItem(
-        storageKey
-      );
-
-    if (existing) {
-      const confirmed =
-        window.confirm(
-          "Você já possui itens desta loja no carrinho. Deseja substituir pelo pedido antigo?"
-        );
-
-      if (!confirmed) {
-        setReorderingOrderId(
-          ""
-        );
-
+      if (reorderError) {
+        console.error("Erro ao repetir pedido:", reorderError);
+        setReorderMessage({
+          title: "Não foi possível repetir este pedido",
+          summary: "Não conseguimos verificar a disponibilidade dos produtos. Tente novamente em alguns instantes.",
+          unavailableNames: [],
+          unavailableProducts: [],
+        });
         return;
       }
-    }
 
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify(
-        items
-      )
-    );
+      const row = Array.isArray(data) ? data[0] : data;
+      const availableItems = Array.isArray(row?.cart_items)
+        ? (row.cart_items as ReorderCartEntry[])
+        : [];
 
-    window.dispatchEvent(
-      new Event(
-        "cart-updated"
-      )
-    );
-
-    const unavailable =
-      Number(
-        row?.unavailable_items ??
-          0
+      // O RPC pode retornar os itens disponíveis sem os nomes. Buscamos os nomes
+      // atuais para identificar com clareza o que está faltando no pedido antigo.
+      let itemsForComparison = availableItems;
+      const needProductNames = availableItems.some((item) =>
+        !(
+          item.product?.name?.trim() ||
+          item.name?.trim() ||
+          item.product_name?.trim()
+        )
       );
 
-    if (
-      unavailable > 0
-    ) {
-      sessionStorage.setItem(
-        "reorder-warning",
-        `${unavailable} item(ns) do pedido antigo não estão disponíveis e não foram adicionados.`
-      );
-    }
+      if (needProductNames && availableItems.length > 0) {
+        const productIds = [...new Set(
+          availableItems
+            .map((item) => String(item.product?.id ?? item.product_id ?? item.id ?? ""))
+            .filter(Boolean)
+        )];
 
-    router.push(
-      "/carrinho"
-    );
+        if (productIds.length > 0) {
+          const { data: currentProducts, error: productNameError } = await supabase
+            .from("products")
+            .select("id, name")
+            .in("id", productIds);
+
+          if (productNameError) {
+            console.warn(
+              "Não foi possível consultar os nomes dos produtos disponíveis:",
+              productNameError
+            );
+          } else {
+            const productNameById = new Map<string, string>(
+              (currentProducts ?? []).map(
+                (product: { id: string; name: string }) => [product.id, product.name] as [string, string]
+              )
+            );
+            itemsForComparison = availableItems.map((item) => {
+              const id = String(item.product?.id ?? item.product_id ?? item.id ?? "");
+              return {
+                ...item,
+                name:
+                  item.product?.name ??
+                  item.name ??
+                  item.product_name ??
+                  productNameById.get(id) ??
+                  null,
+              };
+            });
+          }
+        }
+      }
+
+      const missingNames = unavailableProductNames(
+        order.items ?? [],
+        itemsForComparison
+      );
+      const reportedUnavailable = Math.max(
+        0,
+        Number(row?.unavailable_items ?? 0) || 0
+      );
+      const unavailableCount = Math.max(
+        reportedUnavailable,
+        missingNames.length
+      );
+
+      // Bloqueia a recompra se faltar pelo menos um produto. O carrinho não é
+      // alterado e a página não navega para o checkout.
+      if (unavailableCount > 0 || missingNames.length > 0) {
+        const notice = formatUnavailableMessage(
+          unavailableCount,
+          missingNames,
+          availableItems.length === 0
+        );
+        setReorderMessage(await buildUnavailableProductDetails(order, notice));
+        return;
+      }
+
+      if (availableItems.length === 0) {
+        const notice = formatUnavailableMessage(
+          0,
+          (order.items ?? []).map((item) => item.name).filter(Boolean),
+          true
+        );
+        setReorderMessage(await buildUnavailableProductDetails(order, notice));
+        return;
+      }
+
+      const restaurantId = String(row?.restaurant_id ?? order.restaurant_id);
+
+      // A recompra usa o pedido antigo como uma sessão separada no checkout.
+      // Não sobrescreve nem limpa o carrinho que o cliente já tinha salvo.
+      router.push(
+        `/checkout?restaurant=${encodeURIComponent(restaurantId)}&reorder_order=${encodeURIComponent(order.order_id)}`
+      );
+    } catch (reorderUnexpectedError) {
+      console.error("Erro inesperado ao repetir pedido:", reorderUnexpectedError);
+      setReorderMessage({
+        title: "Não foi possível repetir este pedido",
+        summary: "Ocorreu um problema ao consultar os produtos. O carrinho não foi alterado. Tente novamente.",
+        unavailableNames: [],
+        unavailableProducts: [],
+      });
+    } finally {
+      // Garante que o botão nunca fique preso no estado de carregamento,
+      // mesmo se a RPC, o Storage ou a navegação falharem.
+      setReorderingOrderId("");
+    }
   }
 
   useEffect(() => {
@@ -907,14 +1180,10 @@ export default function MeusPedidosPage() {
     );
 
   const finishedOrders =
-    orders.filter(
-      (
-        order
-      ) =>
-        !isActiveOrder(
-          order.status
-        )
-    );
+    orders.filter((order) => order.status === "delivered");
+
+  const cancelledOrders =
+    orders.filter((order) => order.status === "cancelled");
 
   let visibleOrders:
     Order[] =
@@ -942,6 +1211,14 @@ export default function MeusPedidosPage() {
   ) {
     visibleOrders =
       finishedOrders;
+  }
+
+  if (
+    selectedView ===
+    "cancelled"
+  ) {
+    visibleOrders =
+      cancelledOrders;
   }
 
   // ==========================================
@@ -995,20 +1272,14 @@ export default function MeusPedidosPage() {
             </p>
           </div>
 
-          {refreshing && (
-            <p className="text-sm font-semibold text-green-600">
-              Atualizando...
-            </p>
-          )}
         </div>
 
         {error && (
           <div className="mt-6 rounded-2xl bg-red-50 p-4 font-semibold text-red-700">
-            {
-              error
-            }
+            {error}
           </div>
         )}
+
 
         {!error &&
           orders.length ===
@@ -1044,7 +1315,7 @@ export default function MeusPedidosPage() {
                   ABAS
               ===================================== */}
 
-              <div className="mt-8 grid gap-2 rounded-2xl bg-white p-2 shadow-sm sm:grid-cols-3">
+              <div className="mt-8 grid gap-2 rounded-2xl bg-white p-2 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   type="button"
                   onClick={() =>
@@ -1146,6 +1417,29 @@ export default function MeusPedidosPage() {
                     </span>
                   </div>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedView("cancelled")}
+                  className={`rounded-xl px-3 py-4 text-center font-black transition ${
+                    selectedView === "cancelled"
+                      ? "bg-red-600 text-white shadow-sm"
+                      : "bg-white text-zinc-600 hover:bg-red-50"
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <span>❌ Cancelados</span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs ${
+                        selectedView === "cancelled"
+                          ? "bg-white text-red-600"
+                          : "bg-red-100 text-red-700"
+                      }`}
+                    >
+                      {cancelledOrders.length}
+                    </span>
+                  </div>
+                </button>
               </div>
 
               {/* =====================================
@@ -1156,33 +1450,33 @@ export default function MeusPedidosPage() {
                 0 && (
                 <section className="mt-5 rounded-3xl bg-white p-10 text-center shadow-sm">
                   <div className="text-5xl">
-                    {selectedView ===
-                    "payment"
+                    {selectedView === "payment"
                       ? "💠"
-                      : selectedView ===
-                          "active"
+                      : selectedView === "active"
                         ? "🕐"
-                        : "✅"}
+                        : selectedView === "cancelled"
+                          ? "❌"
+                          : "✅"}
                   </div>
 
                   <h2 className="mt-4 text-xl font-black">
-                    {selectedView ===
-                    "payment"
+                    {selectedView === "payment"
                       ? "Nenhum pagamento pendente"
-                      : selectedView ===
-                          "active"
+                      : selectedView === "active"
                         ? "Nenhum pedido em andamento"
-                        : "Nenhum pedido finalizado"}
+                        : selectedView === "cancelled"
+                          ? "Nenhum pedido cancelado"
+                          : "Nenhum pedido finalizado"}
                   </h2>
 
                   <p className="mt-2 text-zinc-500">
-                    {selectedView ===
-                    "payment"
+                    {selectedView === "payment"
                       ? "Pedidos que ainda precisam ser pagos aparecerão aqui."
-                      : selectedView ===
-                          "active"
+                      : selectedView === "active"
                         ? "Pedidos pagos e em preparação ou entrega aparecerão aqui."
-                        : "Seus pedidos concluídos e cancelados aparecerão aqui."}
+                        : selectedView === "cancelled"
+                          ? "Seus pedidos cancelados e os motivos informados pelo restaurante aparecerão aqui."
+                          : "Seus pedidos entregues aparecerão aqui."}
                   </p>
                 </section>
               )}
@@ -1319,6 +1613,18 @@ export default function MeusPedidosPage() {
                         </div>
 
                         <div className="p-6">
+                          {order.status === "cancelled" && (
+                            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4">
+                              <p className="text-xs font-black uppercase tracking-wide text-red-700">
+                                Motivo do cancelamento
+                              </p>
+                              <p className="mt-2 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-red-900">
+                                {order.cancellation_reason?.trim() ||
+                                  "O restaurante não informou o motivo do cancelamento."}
+                              </p>
+                            </div>
+                          )}
+
                           <p className="text-sm font-black">
                             Itens
                           </p>
@@ -1659,10 +1965,7 @@ export default function MeusPedidosPage() {
                                 }
                                 className="min-h-14 rounded-xl bg-red-600 px-4 py-4 text-center font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
                               >
-                                {reorderingOrderId ===
-                                order.order_id
-                                  ? "Montando carrinho..."
-                                  : "🔁 Pedir novamente"}
+                                🔁 Pedir novamente
                               </button>
 
                               <Link
@@ -1686,12 +1989,24 @@ export default function MeusPedidosPage() {
                                 🍽️ Ver cardápio
                               </Link>
                             </div>
-                          ) : (
+                          ) : order.status === "cancelled" ? (
                             <div className="grid gap-3 sm:grid-cols-2">
-                              <div className="rounded-xl bg-red-50 p-4 text-center font-bold text-red-700">
-                                Pedido cancelado
+                              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center font-bold text-red-700">
+                                ❌ Pedido cancelado
                               </div>
 
+                              <Link
+                                href={`/restaurante/${order.restaurant_id}`}
+                                className="flex items-center justify-center rounded-xl border border-zinc-200 px-4 py-4 text-center font-black transition hover:bg-zinc-50"
+                              >
+                                🍽️ Voltar ao restaurante
+                              </Link>
+                            </div>
+                          ) : (
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-xl bg-green-50 p-4 text-center font-bold text-green-700">
+                                ✅ Pedido finalizado
+                              </div>
                               <Link
                                 href={`/restaurante/${order.restaurant_id}`}
                                 className="flex items-center justify-center rounded-xl border border-zinc-200 px-4 py-4 text-center font-black transition hover:bg-zinc-50"
@@ -1709,6 +2024,96 @@ export default function MeusPedidosPage() {
             </>
           )}
       </div>
+
+      {reorderMessage && (
+        <div
+          role="presentation"
+          onClick={() => setReorderMessage(null)}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reorder-unavailable-title"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl"
+          >
+            <header className="flex items-start gap-4 border-b border-amber-100 bg-amber-50 px-5 py-5 sm:px-6">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-2xl" aria-hidden="true">
+                ⚠️
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-800">
+                  Repetir pedido
+                </p>
+                <h2 id="reorder-unavailable-title" className="mt-1 text-xl font-black text-zinc-900 sm:text-2xl">
+                  {reorderMessage.title}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-zinc-600">
+                  {reorderMessage.summary}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReorderMessage(null)}
+                aria-label="Fechar aviso"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-2xl text-zinc-500 transition hover:bg-amber-100 hover:text-zinc-900"
+              >
+                ×
+              </button>
+            </header>
+
+            {(reorderMessage.unavailableProducts?.length ?? 0) > 0 && (
+              <div className="max-h-[55vh] overflow-y-auto px-5 py-5 sm:px-6">
+                <p className="text-xs font-black uppercase tracking-wide text-zinc-500">
+                  Produto(s) indisponível(is)
+                </p>
+                <div className="mt-3 space-y-3">
+                  {reorderMessage.unavailableProducts!.map((product, index) => (
+                    <div key={`${product.name}-${index}`} className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-3">
+                      <div className="h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-zinc-100">
+                        {product.imageUrl ? (
+                          <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            className="h-full w-full object-cover"
+                            onError={(event) => {
+                              event.currentTarget.style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-3xl" aria-label="Foto indisponível">
+                            🍽️
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="break-words font-black text-zinc-900">{product.name}</p>
+                        <span className="mt-2 inline-flex rounded-full bg-red-50 px-3 py-1 text-xs font-black text-red-700">
+                          Indisponível na loja
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <footer className="border-t border-zinc-100 bg-zinc-50 px-5 py-4 sm:px-6">
+              <p className="text-sm leading-6 text-zinc-500">
+                Seu carrinho não foi alterado e o checkout não foi aberto.
+              </p>
+              <button
+                type="button"
+                onClick={() => setReorderMessage(null)}
+                className="mt-4 w-full rounded-xl bg-red-600 px-5 py-3.5 text-sm font-black text-white transition hover:bg-red-700"
+              >
+                Entendi
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

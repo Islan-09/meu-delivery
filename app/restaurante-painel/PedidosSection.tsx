@@ -4,7 +4,8 @@ import {
   useCallback,
   useEffect,
   useState,
-  useRef
+  useRef,
+  type FormEvent,
 } from "react";
 
 import { useSearchParams } from "next/navigation";
@@ -127,6 +128,8 @@ type Order = {
   customer_name:
     | string
     | null;
+
+  customer_account_code?: string | null;
 
   customer_phone:
     | string
@@ -1301,7 +1304,7 @@ function OrderCard({
   }}
   className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-2 py-2.5 text-xs font-black text-white transition hover:bg-blue-700"
 >
-  <span>💬 Mensagens</span>
+  <span>💬 Falar com cliente</span>
 
   {unreadCount > 0 && (
     <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[11px] font-black text-white">
@@ -1571,6 +1574,12 @@ function toggleOrderSound() {
     setError,
   ] =
     useState("");
+
+  // Modal profissional para exigir o motivo do cancelamento.
+  const [cancelModalOrderId, setCancelModalOrderId] =
+    useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelModalError, setCancelModalError] = useState("");
 
   const [
     restaurantName,
@@ -1893,8 +1902,37 @@ function toggleOrderSound() {
               })
             );
 
+        // Busca os códigos de conta dos clientes de forma segura no Supabase.
+        const {
+          data: accountCodeRows,
+          error: accountCodeError,
+        } = await supabase.rpc(
+          "get_restaurant_customer_account_codes",
+          { p_restaurant_id: restaurantId }
+        );
+
+        if (accountCodeError) {
+          console.error(
+            "Erro ao carregar IDs das contas dos clientes:",
+            accountCodeError
+          );
+        }
+
+        const accountCodeByOrder = new Map<string, string | null>(
+          ((accountCodeRows ?? []) as Array<{
+            order_id: string;
+            account_code: string | null;
+          }>).map((row) => [row.order_id, row.account_code ?? null] as const)
+        );
+
+        const ordersWithAccountCodes = paidOrders.map((order) => ({
+          ...order,
+          customer_account_code:
+            accountCodeByOrder.get(order.order_id) ?? null,
+        }));
+
         const currentOrderIds = new Set(
-  paidOrders.map((order) => order.order_id)
+  ordersWithAccountCodes.map((order) => order.order_id)
 );
 
 const previousOrderIds =
@@ -1913,7 +1951,7 @@ if (
 
 previousOrderIdsRef.current = currentOrderIds;
 
-setOrders(paidOrders);
+setOrders(ordersWithAccountCodes);
 
 setError("");
 
@@ -2133,24 +2171,77 @@ setLoading(false);
   // CANCELAR
   // ==========================================
 
-  async function cancelOrder(
-    orderId: string
-  ) {
-    const confirmed =
-      window.confirm(
-        "Tem certeza que deseja cancelar este pedido?"
-      );
+  function cancelOrder(orderId: string) {
+    setCancelModalOrderId(orderId);
+    setCancelReason("");
+    setCancelModalError("");
+  }
 
-    if (
-      !confirmed
-    ) {
+  async function confirmCancelOrder(
+    event: FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+    const orderId = cancelModalOrderId;
+    const reason = cancelReason.trim();
+
+    if (!orderId) return;
+
+    if (reason.length < 5) {
+      setCancelModalError("Escreva um motivo com pelo menos 5 caracteres.");
       return;
     }
 
-    await updateStatus(
-      orderId,
-      "cancelled"
+    if (reason.length > 500) {
+      setCancelModalError("O motivo deve ter no máximo 500 caracteres.");
+      return;
+    }
+
+    const currentOrder = orders.find((order) => order.order_id === orderId);
+    if (
+      !currentOrder ||
+      currentOrder.restaurant_id !== restaurantId ||
+      currentOrder.payment_status !== "paid" ||
+      currentOrder.status !== "pending"
+    ) {
+      setCancelModalError(
+        "Este pedido não pode ser cancelado agora. Atualize os pedidos e tente novamente."
+      );
+      return;
+    }
+
+    setUpdating(orderId);
+    setCancelModalError("");
+    setError("");
+
+    const { error: cancelError } = await supabase.rpc(
+      "restaurant_cancel_order",
+      {
+        p_order_id: orderId,
+        p_reason: reason,
+      }
     );
+
+    if (cancelError) {
+      console.error("Erro ao cancelar pedido:", cancelError);
+      const databaseMessage = cancelError.message ?? "";
+      if (databaseMessage.includes("ORDER_NOT_CANCELLABLE_OR_NOT_AUTHORIZED")) {
+        setCancelModalError("Este pedido não pode ser cancelado ou não pertence a esta loja.");
+      } else if (databaseMessage.includes("CANCEL_REASON_REQUIRED")) {
+        setCancelModalError("Informe o motivo do cancelamento.");
+      } else {
+        setCancelModalError(
+          "Não foi possível cancelar o pedido. Verifique a conexão e tente novamente."
+        );
+      }
+      setUpdating("");
+      return;
+    }
+
+    setCancelModalOrderId(null);
+    setCancelReason("");
+    setCancelModalError("");
+    await loadOrders();
+    setUpdating("");
   }
 
   // ==========================================
@@ -2556,17 +2647,6 @@ setLoading(false);
           ← Voltar para pedidos
         </button>
 
-        ```
-    {/* CHAT COM O CLIENTE */}
-
-    <div
-  id="chat-pedido"
-  className="mb-5 overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm"
->
-      <h3 className="mb-4 text-xl font-black">
-        💬 Chat com o cliente
-      </h3>
-    </div>
 
         {/* PEDIDO */}
 
@@ -3039,22 +3119,14 @@ setLoading(false);
                 </div>
               )}
 
-            {/* MENSAGENS — DISPONÍVEL EM TODAS AS ETAPAS */}
-
+            {/* FALAR COM CLIENTE — DISPONÍVEL EM TODAS AS ETAPAS */}
             <div className="mt-3">
               <button
                 type="button"
-                onClick={() =>
-                  document
-                    .getElementById("chat-pedido")
-                    ?.scrollIntoView({
-                      behavior: "smooth",
-                      block: "start",
-                    })
-                }
-                className="rounded-xl bg-blue-600 px-6 py-3 font-black text-white hover:bg-blue-700"
+                onClick={() => onOpenMessages(selectedOrder.order_id)}
+                className="rounded-xl bg-blue-600 px-6 py-3 font-black text-white transition hover:bg-blue-700"
               >
-                💬 Mensagens
+                💬 Falar com cliente
               </button>
             </div>
 
@@ -3308,11 +3380,10 @@ setLoading(false);
   const filteredResults = hasInvalidDateRange
     ? []
     : orders.filter((order) => {
-        const matchesName =
+        const matchesCustomer =
           !normalizedSearch ||
-          normalizeSearchText(order.customer_name).includes(
-            normalizedSearch
-          );
+          normalizeSearchText(order.customer_name).includes(normalizedSearch) ||
+          normalizeSearchText(order.customer_account_code).includes(normalizedSearch);
 
         const orderDate = orderDateKey(order.created_at);
         const matchesStartDate = !dateFrom || orderDate >= dateFrom;
@@ -3320,7 +3391,7 @@ setLoading(false);
         const matchesStatus = orderMatchesStatusFilter(order);
 
         return (
-          matchesName &&
+          matchesCustomer &&
           matchesStartDate &&
           matchesEndDate &&
           matchesStatus
@@ -3336,30 +3407,30 @@ setLoading(false);
   // SEPARAR PEDIDOS NAS COLUNAS
   // ==========================================
 
-  const newOrders = orders.filter(
+  const newOrders = filteredResults.filter(
     (order) =>
       order.status === "pending" &&
       order.payment_status === "paid"
   );
 
-  const preparingOrders = orders.filter(
+  const preparingOrders = filteredResults.filter(
     (order) =>
       order.status === "accepted" ||
       order.status === "preparing"
   );
 
-  const readyOrders = orders.filter(
+  const readyOrders = filteredResults.filter(
     (order) => order.status === "ready"
   );
 
-  const deliveryOrders = orders.filter(
+  const deliveryOrders = filteredResults.filter(
     (order) =>
       order.status === "driver_assigned" ||
       order.status === "picked_up" ||
       order.status === "delivering"
   );
 
-  const finishedOrders = orders.filter(
+  const finishedOrders = filteredResults.filter(
     (order) =>
       order.status === "delivered" ||
       order.status === "cancelled"
@@ -3442,7 +3513,7 @@ setLoading(false);
                 htmlFor="customer-search"
                 className="mb-2 block text-xs font-black uppercase tracking-wide text-zinc-500"
               >
-                Cliente
+                Cliente / ID da conta
               </label>
 
               <input
@@ -3452,7 +3523,7 @@ setLoading(false);
                 onChange={(event) =>
                   setSearchTerm(event.target.value)
                 }
-                placeholder=""
+                placeholder="Nome ou ID da conta"
                 className="h-12 w-full rounded-xl border border-zinc-200 bg-white px-4 font-semibold outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-100"
               />
             </div>
@@ -3587,65 +3658,10 @@ setLoading(false);
       )}
 
       {/* ==================================
-          RESULTADOS DOS FILTROS
-      ================================== */}
-
-      {!error && orders.length > 0 && isFiltering && (
-        <div className="mt-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="text-xl font-black">
-                Pedidos encontrados
-              </h3>
-
-              <p className="mt-1 text-sm text-zinc-500">
-                Resultado do cliente, período e status selecionados.
-              </p>
-            </div>
-
-            <div className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-black text-white">
-              {filteredResults.length}{" "}
-              {filteredResults.length === 1 ? "pedido" : "pedidos"}
-            </div>
-          </div>
-
-          {filteredResults.length === 0 ? (
-            <div className="mt-4 rounded-3xl bg-white p-10 text-center shadow-sm">
-              <div className="text-5xl">🔎</div>
-
-              <h3 className="mt-4 text-xl font-black">
-                Nenhum pedido encontrado
-              </h3>
-
-              <p className="mt-2 text-zinc-500">
-                Não encontramos pedidos com esses filtros nesta loja.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredResults.map((order) => (
-                <OrderCard
-                  key={order.order_id}
-                  order={order}
-                  updating={updating}
-                  onOpen={setSelectedOrderId}
-                  onAccept={acceptOrder}
-                  onCancel={cancelOrder}
-                  onMessages={onOpenMessages}
-                  unreadCount={unreadCounts[order.order_id] ?? 0}
-                  
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ==================================
           5 COLUNAS
       ================================== */}
 
-      {!isFiltering && orders.length > 0 && (
+      {orders.length > 0 && (
         <div className="mt-6 overflow-x-auto pb-5">
           <div className="grid min-w-[1250px] grid-cols-5 items-start gap-4">
 
@@ -3739,6 +3755,108 @@ setLoading(false);
               unreadCounts={unreadCounts}
             />
           </div>
+        </div>
+      )}
+
+      {cancelModalOrderId && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/55 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && updating !== cancelModalOrderId) {
+              setCancelModalOrderId(null);
+              setCancelReason("");
+              setCancelModalError("");
+            }
+          }}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-order-title"
+            onSubmit={confirmCancelOrder}
+            className="w-full max-w-lg overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl"
+          >
+            <div className="flex items-start gap-4 border-b border-red-100 bg-red-50 px-6 py-5">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-2xl">
+                ⚠️
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 id="cancel-order-title" className="text-xl font-black text-zinc-900">
+                  Cancelar pedido
+                </h3>
+                <p className="mt-1 text-sm leading-5 text-zinc-600">
+                  O motivo ficará registrado e será mostrado ao cliente em “Meus pedidos”.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={updating === cancelModalOrderId}
+                onClick={() => {
+                  setCancelModalOrderId(null);
+                  setCancelReason("");
+                  setCancelModalError("");
+                }}
+                aria-label="Fechar"
+                className="rounded-lg px-2 py-1 text-xl font-bold text-zinc-500 transition hover:bg-white hover:text-zinc-900 disabled:opacity-40"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-3 px-6 py-5">
+              <label htmlFor="cancel-order-reason" className="block text-sm font-black text-zinc-800">
+                Motivo do cancelamento <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="cancel-order-reason"
+                value={cancelReason}
+                onChange={(event) => {
+                  setCancelReason(event.target.value.slice(0, 500));
+                  setCancelModalError("");
+                }}
+                rows={4}
+                maxLength={500}
+                required
+                autoFocus
+                placeholder="Ex.: item indisponível, endereço não atendido..."
+                disabled={updating === cancelModalOrderId}
+                className="w-full resize-y rounded-2xl border border-zinc-200 px-4 py-3 text-sm leading-6 outline-none transition placeholder:text-zinc-400 focus:border-red-400 focus:ring-4 focus:ring-red-50 disabled:bg-zinc-50"
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-zinc-500">Informe ao menos 5 caracteres.</p>
+                <p className="text-xs tabular-nums text-zinc-400">{cancelReason.length}/500</p>
+              </div>
+
+              {cancelModalError && (
+                <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+                  {cancelModalError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 border-t border-zinc-100 bg-zinc-50 px-6 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={updating === cancelModalOrderId}
+                onClick={() => {
+                  setCancelModalOrderId(null);
+                  setCancelReason("");
+                  setCancelModalError("");
+                }}
+                className="rounded-xl border border-zinc-200 bg-white px-5 py-3 text-sm font-bold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="submit"
+                disabled={updating === cancelModalOrderId || cancelReason.trim().length < 5}
+                className="rounded-xl bg-red-600 px-5 py-3 text-sm font-black text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {updating === cancelModalOrderId ? "Cancelando..." : "Confirmar cancelamento"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>
