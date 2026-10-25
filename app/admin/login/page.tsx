@@ -15,17 +15,34 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
 
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setError("Acesso negado. Verifique suas credenciais de administrador.");
-      setPassword(""); // LIMPA SENHA
-      setLoading(false);
-      return;
-    }
+    const { data, error } = await supabase.auth.signInWithPassword({
+  email: email.trim(),
+  password,
+});
 
-    // Aqui você pode verificar se é admin no banco se quiser
-    router.push("/admin");
-    router.refresh();
+if (error || !data.user) {
+  setError("Acesso negado. Verifique suas credenciais de administrador.");
+  setPassword("");
+  setLoading(false);
+  return;
+}
+
+const { data: profile, error: profileError } = await supabase
+  .from("profiles")
+  .select("role")
+  .eq("id", data.user.id)
+  .maybeSingle();
+
+if (profileError || profile?.role !== "admin") {
+  await supabase.auth.signOut();
+  setError("Esta conta não tem permissão para acessar o painel administrativo.");
+  setPassword("");
+  setLoading(false);
+  return;
+}
+
+router.replace("/admin");
+router.refresh();
   }
 
   return (

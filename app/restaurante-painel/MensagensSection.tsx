@@ -163,35 +163,55 @@ function playMessageNotificationSound() {
   play();
 }
 
+
 function countUnread(
   orderId: string,
-  incomingMessages: ChatMessage[]
+  incomingMessages: ChatMessage[],
+  readReceiptKeys: Set<string>
 ) {
   const lastReadAt = localStorage.getItem(
     `${CHAT_READ_STORAGE_PREFIX}${orderId}`
   );
+  const lastReadTime = lastReadAt
+    ? new Date(lastReadAt).getTime()
+    : 0;
 
-  if (!lastReadAt) return incomingMessages.length;
+  return incomingMessages.filter((item) => {
+    const alreadyReadInDatabase = readReceiptKeys.has(
+      `order:${item.id}`
+    );
+    const alreadyReadLocally =
+      lastReadTime > 0 &&
+      new Date(item.created_at).getTime() <= lastReadTime;
 
-  const lastReadTime = new Date(lastReadAt).getTime();
-  return incomingMessages.filter(
-    (item) => new Date(item.created_at).getTime() > lastReadTime
-  ).length;
+    return !alreadyReadInDatabase && !alreadyReadLocally;
+  }).length;
 }
 
 function countDirectUnread(
   conversationId: string,
-  incomingMessages: DirectMessage[]
+  incomingMessages: DirectMessage[],
+  readReceiptKeys: Set<string>
 ) {
   const lastReadAt = localStorage.getItem(
     `${CHAT_DIRECT_READ_STORAGE_PREFIX}${conversationId}`
   );
-  if (!lastReadAt) return incomingMessages.length;
-  const lastReadTime = new Date(lastReadAt).getTime();
-  return incomingMessages.filter(
-    (item) => new Date(item.created_at).getTime() > lastReadTime
-  ).length;
+  const lastReadTime = lastReadAt
+    ? new Date(lastReadAt).getTime()
+    : 0;
+
+  return incomingMessages.filter((item) => {
+    const alreadyReadInDatabase = readReceiptKeys.has(
+      `direct:${item.id}`
+    );
+    const alreadyReadLocally =
+      lastReadTime > 0 &&
+      new Date(item.created_at).getTime() <= lastReadTime;
+
+    return !alreadyReadInDatabase && !alreadyReadLocally;
+  }).length;
 }
+
 
 export default function MensagensSection({
   initialOrderId = null,
@@ -348,7 +368,38 @@ export default function MensagensSection({
       }
 
       const orderMessages = (orderMessagesResponse.data ?? []) as ChatMessage[];
+      
       const directMessages = (directMessagesResponse.data ?? []) as DirectMessage[];
+
+      const allMessageIds = [
+        ...new Set([
+          ...orderMessages.map((item) => item.id),
+          ...directMessages.map((item) => item.id),
+        ]),
+      ];
+
+      const { data: readReceiptsData, error: readReceiptsError } =
+        allMessageIds.length > 0
+          ? await supabase
+              .from("chat_message_read_receipts")
+              .select("message_source, message_id")
+              .eq("reader_id", currentUserId)
+              .in("message_id", allMessageIds)
+          : { data: [], error: null };
+
+      if (readReceiptsError) {
+        console.error(
+          "Erro ao carregar mensagens visualizadas:",
+          readReceiptsError
+        );
+      }
+
+      const readReceiptKeys = new Set(
+        (readReceiptsData ?? []).map(
+          (item) => `${item.message_source}:${item.message_id}`
+        )
+      );
+
       const directProfileByConversation = new Map<string, { customer_id: string; customer_name: string | null }>();
       for (const row of (directProfilesResponse.data ?? []) as Array<{ conversation_id: string; customer_id: string; customer_name: string | null }>) {
         directProfileByConversation.set(row.conversation_id, {
@@ -400,7 +451,11 @@ export default function MensagensSection({
           messages: orderMessagesForThread,
           incomingMessages,
           lastMessage,
-          unreadCount: countUnread(order.order_id, incomingMessages),
+          unreadCount: countUnread(
+  order.order_id,
+  incomingMessages,
+  readReceiptKeys
+),
         };
 
         let customer = grouped.get(customerId);
@@ -470,7 +525,11 @@ export default function MensagensSection({
 
         customer.directConversationId = direct.id;
         if (profile?.customer_name) customer.customerName = profile.customer_name;
-        customer.unreadCount += countDirectUnread(direct.id, incomingDirectMessages);
+        customer.unreadCount += countDirectUnread(
+  direct.id,
+  incomingDirectMessages,
+  readReceiptKeys
+);
         if (new Date(directLastMessage.created_at).getTime() >= new Date(customer.lastMessage.created_at).getTime()) {
           customer.lastMessage = directLastMessage;
         }
@@ -492,7 +551,11 @@ export default function MensagensSection({
               message: "",
               created_at: order.created_at || direct.created_at,
             },
-            unreadCount: countUnread(order.order_id, incoming),
+            unreadCount: countUnread(
+  order.order_id,
+  incoming,
+  readReceiptKeys
+),
           });
         }
       }

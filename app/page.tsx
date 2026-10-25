@@ -909,14 +909,16 @@ export default function Home() {
 
       <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div>
-            <h1 className="text-2xl font-black text-red-600">
-              Entrega Paudalho
-            </h1>
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo-pedeja.png"
+              alt="PedeJá"
+              className="h-12 w-12 rounded-xl object-cover"
+            />
 
-            <div className="mt-1 text-sm font-medium">
-              📍 Paudalho, PE
-            </div>
+            <h1 className="text-2xl font-black text-black">
+              PedeJá
+            </h1>
           </div>
 
           <div className="flex items-center gap-3">
@@ -938,7 +940,7 @@ export default function Home() {
           </p>
 
           <h2 className="mt-2 max-w-xl text-3xl font-black md:text-5xl">
-            O melhor de Paudalho entregue em
+            O que você gosta, entregue em
             sua casa
           </h2>
 
@@ -1303,12 +1305,19 @@ export default function Home() {
 
       <footer className="mt-10 border-t border-zinc-200 bg-white">
         <div className="mx-auto max-w-6xl px-4 py-8 text-center">
-          <p className="font-bold text-red-600">
-            Entrega Paudalho
-          </p>
+          <div className="flex items-center justify-center gap-2">
+            <img
+              src="/logo-pedeja.png"
+              alt=""
+              className="h-8 w-8 rounded-lg object-cover"
+            />
+            <p className="font-bold text-black">
+              PedeJá
+            </p>
+          </div>
 
           <p className="mt-1 text-sm text-zinc-500">
-            Feito para Paudalho e região ❤️
+            Peça fácil. Receba rápido. ❤️
           </p>
         </div>
       </footer>

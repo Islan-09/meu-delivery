@@ -528,12 +528,12 @@ function DriverLiveMap({
     : "https://www.google.com/maps/@-7.895,-35.172,13z";
 
   return (
-    <section className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-col gap-3 border-b border-zinc-100 p-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-black uppercase tracking-wide text-red-600">LOCALIZAÇÃO</p>
-          <h2 className="mt-1 text-2xl font-black">Mapa em tempo real</h2>
-          <p className="mt-1 text-sm text-zinc-500">Veja sua posição atual e a rota da entrega quando houver um pedido ativo.</p>
+          <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-red-600">MAPA AO VIVO</p>
+          <h2 className="mt-1 text-lg font-black tracking-tight sm:text-xl">Sua região</h2>
+          <p className="mt-1 text-xs text-zinc-500 sm:text-sm">Sua posição atual e a rota quando houver uma entrega em andamento.</p>
         </div>
         <span className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-2 text-xs font-black ${gpsStatus === "tracking" ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-600"}`}>
           <span className={`h-2 w-2 rounded-full ${gpsStatus === "tracking" ? "bg-green-500" : "bg-zinc-400"}`} />
@@ -542,7 +542,7 @@ function DriverLiveMap({
       </div>
 
       <div className="relative bg-[#e9eef2]">
-        <div ref={mapElementRef} className="h-[340px] w-full sm:h-[420px]" aria-label="Mapa da localização do entregador" />
+        <div ref={mapElementRef} className="h-[260px] w-full sm:h-[350px] lg:h-[380px]" aria-label="Mapa da localização do entregador" />
         {!leafletReady && !mapError && (
           <div className="absolute inset-0 flex items-center justify-center bg-[#e9eef2] text-sm font-bold text-zinc-600">Carregando mapa...</div>
         )}
@@ -1896,44 +1896,38 @@ export default function EntregadorPainelPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f7] text-zinc-900">
+    <main className="min-h-screen bg-[#f4f5f7] pb-24 text-zinc-900 md:pb-8">
       {/* ======================================
           CABEÇALHO
       ====================================== */}
 
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div>
-            <p className="font-black text-red-600">
-              🛵 Entrega Paudalho
-            </p>
-
-            <p className="text-xs text-zinc-500">
-              Painel do entregador
-            </p>
+      <header className="sticky top-0 z-[1300] border-b border-zinc-200/80 bg-white/95 shadow-sm backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-600 text-xl text-white shadow-md shadow-red-600/20">🛵</div>
+            <div className="min-w-0">
+              <p className="truncate text-base font-black tracking-tight text-zinc-950 sm:text-lg">Entrega <span className="text-red-600">Paudalho</span></p>
+              <p className="text-[11px] font-semibold text-zinc-500 sm:text-xs">Área do entregador</p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <div
-              className={`hidden rounded-full px-3 py-2 text-xs font-black sm:block ${
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-extrabold sm:text-xs ${
                 online
-                  ? "bg-green-100 text-green-700"
-                  : "bg-zinc-100 text-zinc-500"
+                  ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                  : "bg-zinc-100 text-zinc-600 ring-1 ring-zinc-200"
               }`}
             >
-              {online
-                ? "● Online"
-                : "● Offline"}
+              <span className={`h-2 w-2 rounded-full ${online ? "bg-emerald-500 animate-pulse" : "bg-zinc-400"}`} />
+              {online ? "Online" : "Offline"}
             </div>
 
             <button
               type="button"
-              onClick={() =>
-                setActiveTab(
-                  "conta"
-                )
-              }
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-zinc-100 text-xl transition hover:bg-zinc-200"
+              onClick={() => setActiveTab("conta")}
+              aria-label="Abrir minha conta"
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg shadow-sm transition hover:bg-zinc-50 sm:h-11 sm:w-11"
             >
               👤
             </button>
@@ -1944,7 +1938,7 @@ export default function EntregadorPainelPage() {
             MENU
         ====================================== */}
 
-        <div className="mx-auto max-w-6xl overflow-x-auto px-4">
+        <div className="mx-auto hidden max-w-6xl overflow-x-auto px-4 md:block">
           <nav className="flex min-w-max gap-2 pb-3">
             <button
               type="button"
@@ -1956,8 +1950,8 @@ export default function EntregadorPainelPage() {
               className={`rounded-xl px-5 py-3 text-sm font-black transition ${
                 activeTab ===
                 "inicio"
-                  ? "bg-red-600 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100"
+                  ? "bg-zinc-950 text-white shadow-sm"
+                  : "rounded-xl text-zinc-600 hover:bg-zinc-100"
               }`}
             >
               🏠 Início
@@ -1973,8 +1967,8 @@ export default function EntregadorPainelPage() {
               className={`relative rounded-xl px-5 py-3 text-sm font-black transition ${
                 activeTab ===
                 "entregas"
-                  ? "bg-red-600 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100"
+                  ? "bg-zinc-950 text-white shadow-sm"
+                  : "rounded-xl text-zinc-600 hover:bg-zinc-100"
               }`}
             >
               📦 Entregas
@@ -1995,8 +1989,8 @@ export default function EntregadorPainelPage() {
               className={`rounded-xl px-5 py-3 text-sm font-black transition ${
                 activeTab ===
                 "ganhos"
-                  ? "bg-red-600 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100"
+                  ? "bg-zinc-950 text-white shadow-sm"
+                  : "rounded-xl text-zinc-600 hover:bg-zinc-100"
               }`}
             >
               💰 Ganhos
@@ -2012,8 +2006,8 @@ export default function EntregadorPainelPage() {
               className={`rounded-xl px-5 py-3 text-sm font-black transition ${
                 activeTab ===
                 "conta"
-                  ? "bg-red-600 text-white"
-                  : "text-zinc-500 hover:bg-zinc-100"
+                  ? "bg-zinc-950 text-white shadow-sm"
+                  : "rounded-xl text-zinc-600 hover:bg-zinc-100"
               }`}
             >
               👤 Minha conta
@@ -2022,15 +2016,7 @@ export default function EntregadorPainelPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <div className={activeTab === "inicio" ? "contents" : "hidden"}>
-          <DriverLiveMap
-            online={online}
-            currentOrder={currentOrder}
-            visible={activeTab === "inicio"}
-          />
-        </div>
-
+      <div className="mx-auto max-w-6xl px-3 py-4 sm:px-4 sm:py-8">
         {/* ======================================
             ERRO GLOBAL
         ====================================== */}
@@ -2052,39 +2038,38 @@ export default function EntregadorPainelPage() {
           "inicio" && (
           <>
             <div>
-              <p className="text-sm font-black uppercase tracking-wide text-red-600">
-                Visão geral
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-red-600">
+                SUA CENTRAL DE CORRIDAS
               </p>
 
-              <h1 className="mt-1 text-3xl font-black">
+              <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
                 Olá,{" "}
                 {
                   driverName
                 }
               </h1>
 
-              <p className="mt-2 text-zinc-500">
-                Controle seu status e
-                acompanhe suas entregas.
+              <p className="mt-1 text-sm text-zinc-500 sm:text-base">
+                Vamos fazer boas entregas hoje?
               </p>
             </div>
 
             {/* STATUS */}
 
             <section
-              className={`mt-6 rounded-3xl p-6 shadow-sm ${
+              className={`mt-5 rounded-3xl border p-4 shadow-sm sm:p-6 ${
                 online
-                  ? "border border-green-200 bg-green-50"
-                  : "bg-white"
+                  ? "border-emerald-200 bg-gradient-to-br from-emerald-50 to-white"
+                  : "border-zinc-200 bg-white"
               }`}
             >
               <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
                 <div>
-                  <p className="text-sm font-bold text-zinc-500">
-                    SEU STATUS
+                  <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-zinc-500">
+                    DISPONIBILIDADE
                   </p>
 
-                  <h2 className="mt-1 text-3xl font-black">
+                  <h2 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
                     {online
                       ? "🟢 Online"
                       : "🔴 Offline"}
@@ -2105,10 +2090,10 @@ export default function EntregadorPainelPage() {
                   onClick={
                     toggleOnline
                   }
-                  className={`rounded-xl px-6 py-4 font-black text-white disabled:bg-zinc-300 ${
+                  className={`w-full rounded-2xl px-6 py-4 text-sm font-extrabold text-white shadow-md transition active:scale-[0.99] disabled:bg-zinc-300 sm:w-auto ${
                     online
-                      ? "bg-zinc-900"
-                      : "bg-green-600"
+                      ? "bg-zinc-900 shadow-zinc-900/15 hover:bg-zinc-800"
+                      : "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-700"
                   }`}
                 >
                   {processing
@@ -2120,10 +2105,18 @@ export default function EntregadorPainelPage() {
               </div>
             </section>
 
+            <div className="mt-5">
+              <DriverLiveMap
+                online={online}
+                currentOrder={currentOrder}
+                visible={activeTab === "inicio"}
+              />
+            </div>
+
             {/* ENTREGA ATUAL */}
 
             {currentOrder && (
-              <section className="mt-6 overflow-hidden rounded-3xl border border-red-200 bg-white shadow-sm">
+              <section className="mt-5 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
                 <div className="bg-red-600 p-5 text-white">
                   <p className="text-xs font-black uppercase">
                     Entrega em andamento
@@ -2183,7 +2176,7 @@ export default function EntregadorPainelPage() {
 
             {!currentOrder &&
               deliveryOffer && (
-                <section className="mt-6 overflow-hidden rounded-3xl border-2 border-red-500 bg-white shadow-lg">
+                <section className="mt-5 overflow-hidden rounded-3xl border border-red-200 bg-white shadow-lg shadow-red-900/5">
                   <div className="flex flex-wrap items-center justify-between gap-4 bg-red-600 p-5 text-white">
                     <div>
                       <p className="font-black">
@@ -2237,7 +2230,7 @@ export default function EntregadorPainelPage() {
 
             {/* RESUMO GANHOS */}
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 sm:gap-4">
               <button
                 type="button"
                 onClick={() =>
@@ -2245,13 +2238,13 @@ export default function EntregadorPainelPage() {
                     "ganhos"
                   )
                 }
-                className="rounded-3xl bg-white p-6 text-left shadow-sm transition hover:shadow-md"
+                className="rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6"
               >
-                <p className="text-sm font-bold text-zinc-500">
+                <p className="text-xs font-bold text-zinc-500">
                   💰 Ganhos hoje
                 </p>
 
-                <p className="mt-2 text-3xl font-black">
+                <p className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
                   {money(
                     earnings.today_earnings
                   )}
@@ -2272,13 +2265,13 @@ export default function EntregadorPainelPage() {
                     "ganhos"
                   )
                 }
-                className="rounded-3xl bg-white p-6 text-left shadow-sm transition hover:shadow-md"
+                className="rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md sm:p-6"
               >
-                <p className="text-sm font-bold text-zinc-500">
+                <p className="text-xs font-bold text-zinc-500">
                   📅 Ganhos na semana
                 </p>
 
-                <p className="mt-2 text-3xl font-black">
+                <p className="mt-2 text-2xl font-black tracking-tight sm:text-3xl">
                   {money(
                     earnings.week_earnings
                   )}
@@ -2295,7 +2288,7 @@ export default function EntregadorPainelPage() {
 
             {!currentOrder &&
               !deliveryOffer && (
-                <section className="mt-6 rounded-3xl bg-white p-8 text-center shadow-sm">
+                <section className="mt-5 rounded-3xl border border-zinc-200 bg-white p-7 text-center shadow-sm sm:p-8">
                   <div className="text-5xl">
                     {online
                       ? "🛵"
@@ -2337,7 +2330,7 @@ export default function EntregadorPainelPage() {
                 Operação
               </p>
 
-              <h1 className="mt-1 text-3xl font-black">
+              <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
                 Entregas
               </h1>
 
@@ -2351,7 +2344,7 @@ export default function EntregadorPainelPage() {
 
             {!currentOrder &&
               deliveryOffer && (
-                <section className="mt-6 overflow-hidden rounded-3xl border-2 border-red-500 bg-white shadow-lg">
+                <section className="mt-5 overflow-hidden rounded-3xl border border-red-200 bg-white shadow-lg shadow-red-900/5">
                   <div className="bg-red-600 p-5 text-white">
                     <div className="flex items-center justify-between gap-4">
                       <div>
@@ -2477,7 +2470,7 @@ export default function EntregadorPainelPage() {
 
             {!currentOrder &&
               !deliveryOffer && (
-                <section className="mt-6 rounded-3xl bg-white p-10 text-center shadow-sm">
+                <section className="mt-5 rounded-3xl border border-zinc-200 bg-white p-8 text-center shadow-sm sm:p-10">
                   <div className="text-6xl">
                     {online
                       ? "🛵"
@@ -2501,7 +2494,7 @@ export default function EntregadorPainelPage() {
             {/* ENTREGA ATUAL */}
 
             {currentOrder && (
-              <section className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
+              <section className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-red-600">
@@ -2842,7 +2835,7 @@ export default function EntregadorPainelPage() {
                 Financeiro
               </p>
 
-              <h1 className="mt-1 text-3xl font-black">
+              <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
                 Meus ganhos
               </h1>
 
@@ -2852,8 +2845,8 @@ export default function EntregadorPainelPage() {
               </p>
             </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-3xl bg-white p-6 shadow-sm">
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 sm:gap-4">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-green-100 text-2xl">
                   💰
                 </div>
@@ -2876,7 +2869,7 @@ export default function EntregadorPainelPage() {
                 </p>
               </div>
 
-              <div className="rounded-3xl bg-white p-6 shadow-sm">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100 text-2xl">
                   📅
                 </div>
@@ -2900,7 +2893,7 @@ export default function EntregadorPainelPage() {
               </div>
             </div>
 
-            <section className="mt-6 rounded-3xl bg-white p-6 shadow-sm">
+            <section className="mt-5 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
               <h2 className="text-xl font-black">
                 Resumo
               </h2>
@@ -2970,7 +2963,7 @@ export default function EntregadorPainelPage() {
                 Perfil
               </p>
 
-              <h1 className="mt-1 text-3xl font-black">
+              <h1 className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">
                 Minha conta
               </h1>
 
@@ -2980,7 +2973,7 @@ export default function EntregadorPainelPage() {
               </p>
             </div>
 
-            <section className="mt-6 overflow-hidden rounded-3xl bg-white shadow-sm">
+            <section className="mt-5 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
               <div className="border-b border-zinc-100 p-6">
                 <div className="flex items-center gap-4">
                   <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-3xl">
@@ -3073,6 +3066,28 @@ export default function EntregadorPainelPage() {
           </>
         )}
       </div>
+
+      <nav aria-label="Navegação principal" className="fixed inset-x-0 bottom-0 z-[1400] border-t border-zinc-200/80 bg-white/95 px-2 pb-[max(env(safe-area-inset-bottom),8px)] pt-2 shadow-[0_-8px_24px_rgba(0,0,0,0.06)] backdrop-blur md:hidden">
+        <div className="mx-auto grid max-w-lg grid-cols-4 gap-1">
+          {[
+            { id: "inicio" as PanelTab, label: "Início", icon: "⌂" },
+            { id: "entregas" as PanelTab, label: "Entregas", icon: "▣" },
+            { id: "ganhos" as PanelTab, label: "Ganhos", icon: "R$" },
+            { id: "conta" as PanelTab, label: "Conta", icon: "♙" },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              className={`relative flex min-h-[58px] flex-col items-center justify-center gap-1 rounded-2xl px-2 py-1 text-[10px] font-extrabold transition ${activeTab === item.id ? "bg-red-50 text-red-600" : "text-zinc-500 hover:bg-zinc-50"}`}
+            >
+              <span className={`flex h-7 min-w-7 items-center justify-center rounded-xl text-lg leading-none ${activeTab === item.id ? "bg-red-600 text-white shadow-sm" : "text-zinc-500"}`}>{item.icon}</span>
+              <span>{item.label}</span>
+              {item.id === "entregas" && (deliveryOffer || currentOrder) && <span className="absolute right-3 top-2 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-white" />}
+            </button>
+          ))}
+        </div>
+      </nav>
     </main>
   );
 }

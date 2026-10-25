@@ -226,15 +226,6 @@ export default function UserMenu() {
               💬 Ajuda e suporte
             </Link>
 
-            {user.hasRestaurant && (
-              <>
-                <div className="my-2 border-t border-zinc-100" />
-                <Link href="/restaurante-painel" onClick={() => setOpen(false)} className="block rounded-xl bg-orange-50 px-4 py-3 text-sm font-bold text-orange-700 transition hover:bg-orange-100">
-                  🏪 Painel do restaurante
-                </Link>
-              </>
-            )}
-
             <div className="my-2 border-t border-zinc-100" />
             <button type="button" onClick={logout} className="w-full rounded-xl px-4 py-3 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50">
               🚪 Sair
